@@ -87,14 +87,14 @@
     <meta property="og:type" content="website" />
     <meta property="og:title" content="PortfolioHubs — بورتفوليو أطباء الأسنان وصانع السيرة الذاتية" />
     <meta property="og:description" content="اصنع بورتفوليو احترافي لأطباء الأسنان وحمل سيرتك الذاتية بصيغة PDF و PPTX القابلة للتعديل." />
-    <meta property="og:image" content="%BASE_URL%logo.png" />
+    <meta property="og:image" content="/logo.png" />
     <meta property="og:site_name" content="PortfolioHubs" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="PortfolioHubs — بورتفوليو أطباء الأسنان وصانع السيرة الذاتية" />
     <meta name="twitter:description" content="اصنع بورتفوليو احترافي لأطباء الأسنان وحمل سيرتك الذاتية بصيغة PDF و PPTX القابلة للتعديل." />
-    <meta name="twitter:image" content="%BASE_URL%logo.png" />
+    <meta name="twitter:image" content="/logo.png" />
 
     <!-- Favicon & Icons -->
     <link rel="icon" type="image/png" href="%BASE_URL%logo.png" />
@@ -123,6 +123,7 @@
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('%BASE_URL%sw.js').then(
             (registration) => {
+              registration.update();
               console.log('ServiceWorker registered with scope:', registration.scope);
             },
             (error) => {
