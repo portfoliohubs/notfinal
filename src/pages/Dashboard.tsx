@@ -6,6 +6,7 @@ import {
   sendPasswordResetEmail,
   User 
 } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { 
   User as UserIcon, 
   Briefcase, 
@@ -31,7 +32,7 @@ import {
   Sparkles,
   Zap
 } from 'lucide-react';
-import { auth } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { cleanFirestoreData } from '../lib/firestoreUtils';
 import Header from '../components/Header';
 import HotmartSidebar from '../components/HotmartSidebar';
@@ -89,11 +90,40 @@ export default function Dashboard() {
         let loadedDocData: any = null;
 
         try {
-          loadedDocData = (await cloudflareApi.getProfile(currentUser.uid)).data;
+          const profileResponse = await cloudflareApi.getProfile(currentUser.uid);
+          loadedDocData = profileResponse?.data || null;
         } catch (readErr: any) {
-          console.warn('Could not read user profile from Cloudflare:', readErr);
-          setSaveError('Unable to load your profile. Please check your connection or contact support.');
-          throw readErr;
+          console.warn('Could not read user profile from Cloudflare, checking Firestore fallback:', readErr);
+        }
+
+        if (!loadedDocData) {
+          try {
+            const fsSnap = await getDoc(doc(db, 'portfolios', currentUser.uid));
+            if (fsSnap.exists()) {
+              loadedDocData = fsSnap.data();
+            } else {
+              const userSnap = await getDoc(doc(db, 'users', currentUser.uid));
+              if (userSnap.exists()) {
+                loadedDocData = userSnap.data();
+              }
+            }
+          } catch (fsErr) {
+            console.warn('Firestore fallback read error:', fsErr);
+          }
+        }
+
+        // Clean default starter profile for new users who signed up directly
+        if (!loadedDocData) {
+          loadedDocData = {
+            fullName: currentUser.displayName || '',
+            email: currentUser.email || '',
+            status: 'draft',
+            caseLimit: CONFIG.tierLimits.freeCases,
+            packageTier: 'Free',
+            active: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
         }
 
         if (loadedDocData) {
@@ -419,6 +449,13 @@ export default function Dashboard() {
 
       await cloudflareApi.saveProfile(updatedPayload, user.uid);
       await cloudflareApi.savePortfolio(updatedPayload, user.uid);
+
+      try {
+        await setDoc(doc(db, 'portfolios', user.uid), updatedPayload, { merge: true });
+        await setDoc(doc(db, 'users', user.uid), updatedPayload, { merge: true });
+      } catch (fsErr) {
+        console.warn('[Dashboard] Firestore mirror write warning:', fsErr);
+      }
 
       // 7. Update local state
       const nextPortfolio: PortfolioData = {

@@ -3,6 +3,7 @@ import { Link } from 'wouter';
 import { FileText, Search, CheckCircle, ArrowRight, UserCheck, PlusCircle } from 'lucide-react';
 import { FaFacebook, FaInstagram, FaWhatsapp } from 'react-icons/fa';
 import Header from '../components/Header';
+import Footer from '../components/Footer';
 import CONFIG from '../config';
 import { gtagEvent } from '../lib/gtag';
 import { SERVICES } from '../services';
@@ -124,7 +125,11 @@ export default function HomePage() {
                   <ArrowRight className="h-5 w-5 text-muted-foreground opacity-50 group-hover:opacity-100 group-hover:translate-x-1 group-hover:text-primary transition-all" />
                 </div>
                 <h2 className="text-lg font-bold text-foreground mb-1 leading-tight">
-                  {CONFIG.home.cvButtonTitle}
+                  Professional{' '}
+                  <span className="text-primary font-black bg-primary/10 px-2 py-0.5 rounded-lg border border-primary/25 shadow-xs inline-block tracking-wide">
+                    Portfolio
+                  </span>{' '}
+                  and CV PDF Maker for free
                 </h2>
                 <p className="text-sm text-muted-foreground">
                   {CONFIG.home.cvButtonSubtitle}
@@ -233,65 +238,7 @@ export default function HomePage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border/60 py-4 px-4 flex flex-col items-center gap-2">
-        <nav className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground" aria-label="Platform">
-          <Link href="/about" className="hover:text-foreground">About</Link>
-          <Link href="/pricing" className="hover:text-foreground">Pricing</Link>
-          <Link href="/docs" className="hover:text-foreground">Docs</Link>
-          <Link href="/changelog" className="hover:text-foreground">Changelog</Link>
-          <Link href="/status" className="hover:text-foreground">Status</Link>
-          <Link href="/contact" className="hover:text-foreground">Contact</Link>
-          <Link href="/privacy" className="hover:text-foreground">Privacy</Link>
-          <Link href="/terms" className="hover:text-foreground">Terms</Link>
-        </nav>
-        <div className="text-xs text-muted-foreground text-center">
-          <span className="font-semibold text-foreground">{CONFIG.brand.name}</span>
-          {' · '}
-          <span className="font-almarai" dir="rtl">{CONFIG.brand.slogan}</span>
-        </div>
-
-        {/* Social icons */}
-        {hasSocial && (
-          <div className="flex items-center gap-4">
-            {CONFIG.social.facebook && (
-              <a
-                href={CONFIG.social.facebook}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Facebook"
-                className="text-muted-foreground hover:text-blue-600 transition-colors"
-                onClick={() => gtagEvent('social_click', { platform: 'facebook', source: 'homepage' })}
-              >
-                <FaFacebook size={20} />
-              </a>
-            )}
-            {CONFIG.social.instagram && (
-              <a
-                href={CONFIG.social.instagram}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Instagram"
-                className="text-muted-foreground hover:text-pink-500 transition-colors"
-                onClick={() => gtagEvent('social_click', { platform: 'instagram', source: 'homepage' })}
-              >
-                <FaInstagram size={20} />
-              </a>
-            )}
-            {CONFIG.social.whatsapp && (
-              <a
-                href={CONFIG.social.whatsapp}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="WhatsApp"
-                className="text-muted-foreground hover:text-green-500 transition-colors"
-                onClick={() => gtagEvent('social_click', { platform: 'whatsapp', source: 'homepage' })}
-              >
-                <FaWhatsapp size={20} />
-              </a>
-            )}
-          </div>
-        )}
-      </footer>
+      <Footer />
     </div>
   );
 }

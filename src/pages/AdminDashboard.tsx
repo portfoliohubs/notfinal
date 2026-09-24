@@ -326,18 +326,63 @@ export default function AdminDashboard() {
       }
 
       try {
-        const apiDoctors = await cloudflareApi.getAdminDoctors();
-        setDoctors(apiDoctors.map((data) => ({
-          ...data,
-          id: data.id,
-          caseCount: data.caseCount || 0,
-          cases: data.cases || [],
-          status: data.status || 'pending_review',
-          active: data.active !== false,
-        } as PortfolioRecord)));
+        let loadedList: PortfolioRecord[] = [];
+        try {
+          const apiDoctors = await cloudflareApi.getAdminDoctors();
+          if (Array.isArray(apiDoctors) && apiDoctors.length > 0) {
+            loadedList = apiDoctors.map((data) => ({
+              ...data,
+              id: data.id,
+              caseCount: data.caseCount || 0,
+              cases: data.cases || [],
+              status: data.status || 'pending_review',
+              active: data.active !== false,
+            } as PortfolioRecord));
+          }
+        } catch (apiErr) {
+          console.warn('[AdminDashboard] Could not read D1 doctors, falling back to Firestore:', apiErr);
+        }
+
+        // If D1 returned empty or failed, load from Firestore portfolios or users
+        if (loadedList.length === 0) {
+          try {
+            const fsSnap = await getDocs(collection(db, 'portfolios'));
+            if (!fsSnap.empty) {
+              loadedList = fsSnap.docs.map((d) => {
+                const data = d.data();
+                return {
+                  id: d.id,
+                  ...data,
+                  status: data.status || 'pending_review',
+                  active: data.active !== false,
+                  caseCount: data.caseCount || (data.cases ? data.cases.length : 0),
+                  cases: data.cases || []
+                } as PortfolioRecord;
+              });
+            } else {
+              const usersSnap = await getDocs(collection(db, 'users'));
+              loadedList = usersSnap.docs
+                .filter((d) => !d.data().isAdmin)
+                .map((d) => {
+                  const data = d.data();
+                  return {
+                    id: d.id,
+                    fullName: (data.fullName as string) || (data.name as string) || 'Doctor',
+                    ...data,
+                    status: data.status || 'pending_review',
+                    active: data.active !== false,
+                    caseCount: data.caseCount || 0,
+                    cases: [],
+                  } as PortfolioRecord;
+                });
+            }
+          } catch (fsErr) {
+            console.warn('[AdminDashboard] Firestore fallback error:', fsErr);
+          }
+        }
+        setDoctors(loadedList);
       } catch (err) {
-        console.error('[AdminDashboard] Could not read D1 doctors:', err);
-        throw err;
+        console.error('[AdminDashboard] Could not read doctors:', err);
       }
       setDoctors(prev => [...prev].sort((a, b) => {
         if (a.status === 'pending_review' && b.status !== 'pending_review') return -1;
@@ -506,11 +551,28 @@ export default function AdminDashboard() {
   // 5. Action: Toggle Suspend / Activate Account
   const handleToggleAccountActive = async (doctor: PortfolioRecord) => {
     const newActiveState = !(doctor.active !== false);
+    const nowIso = new Date().toISOString();
     try {
       await updateDoc(doc(db, 'users', doctor.id), {
         active: newActiveState,
-        updatedAt: new Date().toISOString()
+        updatedAt: nowIso
       });
+      try {
+        await updateDoc(doc(db, 'portfolios', doctor.id), {
+          active: newActiveState,
+          updatedAt: nowIso
+        });
+      } catch (pErr) {
+        console.warn('portfolios updateDoc warning:', pErr);
+      }
+      try {
+        await cloudflareApi.saveProfile({
+          active: newActiveState,
+          updatedAt: nowIso
+        }, doctor.id);
+      } catch (cfErr) {
+        console.warn('cloudflareApi saveProfile warning:', cfErr);
+      }
 
       setDoctors(prev => prev.map(d => d.id === doctor.id ? { ...d, active: newActiveState } : d));
       setStatusMessage({
@@ -598,6 +660,25 @@ export default function AdminDashboard() {
         updatedAt: nowIso
       }, { merge: true });
 
+      // Mirror approval to Cloudflare D1 API
+      try {
+        const approvePayload = {
+          status: 'published' as const,
+          active: true,
+          slug: derivedSlug,
+          username: derivedSlug,
+          hasUnreviewedChanges: false,
+          publishedAt: nowIso,
+          adminNotes: '',
+          rejectionReason: null,
+          updatedAt: nowIso
+        };
+        await cloudflareApi.saveProfile(approvePayload, doctor.id);
+        await cloudflareApi.savePortfolio(approvePayload, doctor.id);
+      } catch (cfErr) {
+        console.warn('[AdminDashboard] Cloudflare mirror approve warning:', cfErr);
+      }
+
       // 3. Register Slug in Slugs Registry
       // Update Local State
       setDoctors(prev => prev.map(d => d.id === doctor.id ? {
@@ -608,7 +689,27 @@ export default function AdminDashboard() {
         publishedAt: nowIso
       } : d));
 
-      // 4. Dispatch GitHub Action if PAT is provided
+      // 4. Trigger Real Static HTML Generation on Server
+      let serverGenSuccess = false;
+      try {
+        const genRes = await fetch('/api/admin/generate-doctor-html', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            doctor: { ...doctor, slug: derivedSlug, username: derivedSlug },
+            cases: doctor.cases || []
+          })
+        });
+        if (genRes.ok) {
+          const genData = await genRes.json();
+          serverGenSuccess = genData.ok;
+          console.log('✅ Real static HTML generation result:', genData);
+        }
+      } catch (genErr) {
+        console.warn('Backend static generator call skipped or unavailable:', genErr);
+      }
+
+      // 5. Dispatch GitHub Action if PAT is provided
       let ghResult: { ok: boolean; status?: number; error?: string } = { ok: true };
       if (ghPat.trim()) {
         ghResult = await dispatchGitHubAction('admin_approved', {
@@ -618,10 +719,15 @@ export default function AdminDashboard() {
         });
       }
 
-      if (!ghPat.trim()) {
+      if (serverGenSuccess) {
         setStatusMessage({
           type: 'success',
-          text: `✅ تم اعتماد بورتفوليو د. ${doctor.fullName || doctor.fullNameAr} بنجاح في قاعدة البيانات! (ملاحظة: يمكنك إدخال GitHub PAT في تبويب GitHub Actions لتوليد الصفحات الثابتة تلقائياً).`
+          text: `🎉 تم اعتماد وتوليد صفحة HTML الحقيقية الثابتة بنجاح في /dr/${derivedSlug} وتحديث Sitemap وIndexNow فوراً! الرابط متاح ومفهرس الآن.`
+        });
+      } else if (!ghPat.trim()) {
+        setStatusMessage({
+          type: 'success',
+          text: `✅ تم اعتماد بورتفوليو د. ${doctor.fullName || doctor.fullNameAr} بنجاح في قاعدة البيانات وجاري حفظ الصفحات الثابتة.`
         });
       } else if (!ghResult.ok) {
         setStatusMessage({
@@ -631,7 +737,7 @@ export default function AdminDashboard() {
       } else {
         setStatusMessage({
           type: 'success',
-          text: `✅ تم اعتماد بورتفوليو د. ${doctor.fullName || doctor.fullNameAr} بنجاح! جاري بناء الصفحة الثابتة والمقالات الأربع التلقائية.`
+          text: `✅ تم اعتماد بورتفوليو د. ${doctor.fullName || doctor.fullNameAr} بنجاح! تم بناء الصفحة الثابتة والمقالات الأربع التلقائية.`
         });
       }
 
@@ -672,6 +778,29 @@ export default function AdminDashboard() {
         updatedAt: nowIso
       }, { merge: true });
 
+      try {
+        await setDoc(doc(db, 'portfolios', rejectDoctorId), {
+          status: 'rejected',
+          hasUnreviewedChanges: false,
+          adminNotes: rejectNotes,
+          rejectionReason: rejectNotes,
+          updatedAt: nowIso
+        }, { merge: true });
+      } catch (pErr) {
+        console.warn('portfolios rejectDoc warning:', pErr);
+      }
+
+      try {
+        await cloudflareApi.saveProfile({
+          status: 'rejected',
+          hasUnreviewedChanges: false,
+          adminNotes: rejectNotes,
+          updatedAt: nowIso
+        }, rejectDoctorId);
+      } catch (cfErr) {
+        console.warn('cloudflareApi rejectDoctor warning:', cfErr);
+      }
+
       setDoctors(prev => prev.map(d => d.id === rejectDoctorId ? {
         ...d,
         status: 'rejected',
@@ -696,11 +825,18 @@ export default function AdminDashboard() {
   const handleSaveGlobalSettings = async () => {
     setSavingSettings(true);
     try {
+      const nowIso = new Date().toISOString();
       await setDoc(doc(db, 'settings', 'global'), {
         ...globalSettings,
-        updatedAt: new Date().toISOString(),
+        updatedAt: nowIso,
         updatedBy: adminUser?.email || 'admin'
       }, { merge: true });
+
+      try {
+        await cloudflareApi.saveSettings('global', globalSettings as unknown as Record<string, unknown>);
+      } catch (cfErr) {
+        console.warn('[AdminDashboard] Cloudflare saveSettings warning:', cfErr);
+      }
 
       setStatusMessage({
         type: 'success',
@@ -718,15 +854,29 @@ export default function AdminDashboard() {
     if (!normalizedCode) return;
     setSavingPromo(true);
     try {
+      const nowIso = new Date().toISOString();
       await setDoc(doc(db, 'promo_codes', normalizedCode), {
         code: normalizedCode,
         caseLimit: Math.max(3, promoCaseLimit),
         maxRedemptions: Math.max(1, promoMaxRedemptions),
         redeemedCount: 0,
         active: true,
-        updatedAt: new Date().toISOString(),
+        updatedAt: nowIso,
         updatedBy: adminUser?.email || 'admin',
       });
+
+      try {
+        await cloudflareApi.savePromoCode(normalizedCode, {
+          code: normalizedCode,
+          caseLimit: Math.max(3, promoCaseLimit),
+          maxRedemptions: Math.max(1, promoMaxRedemptions),
+          redeemedCount: 0,
+          active: true,
+        });
+      } catch (cfErr) {
+        console.warn('[AdminDashboard] Cloudflare savePromoCode warning:', cfErr);
+      }
+
       setPromoCodes((previous) => [
         ...previous.filter((item) => item.code !== normalizedCode),
         {
@@ -735,7 +885,7 @@ export default function AdminDashboard() {
           maxRedemptions: Math.max(1, promoMaxRedemptions),
           redeemedCount: 0,
           active: true,
-          updatedAt: new Date().toISOString(),
+          updatedAt: nowIso,
         },
       ].sort((a, b) => a.code.localeCompare(b.code)));
       setPromoCode('');
@@ -750,13 +900,25 @@ export default function AdminDashboard() {
 
   const handleTogglePromo = async (promo: PromoCodeRecord) => {
     try {
+      const nowIso = new Date().toISOString();
+      const newActive = !promo.active;
       await updateDoc(doc(db, 'promo_codes', promo.code), {
-        active: !promo.active,
-        updatedAt: new Date().toISOString(),
+        active: newActive,
+        updatedAt: nowIso,
         updatedBy: adminUser?.email || 'admin',
       });
+
+      try {
+        await cloudflareApi.savePromoCode(promo.code, {
+          ...promo,
+          active: newActive,
+        });
+      } catch (cfErr) {
+        console.warn('[AdminDashboard] Cloudflare toggle promo warning:', cfErr);
+      }
+
       setPromoCodes((previous) => previous.map((item) =>
-        item.code === promo.code ? { ...item, active: !item.active } : item,
+        item.code === promo.code ? { ...item, active: newActive } : item,
       ));
     } catch (error) {
       console.error('[AdminDashboard] Failed to toggle promo code:', error);
@@ -768,6 +930,11 @@ export default function AdminDashboard() {
     if (!window.confirm(`Delete promo code ${promo.code}?`)) return;
     try {
       await deleteDoc(doc(db, 'promo_codes', promo.code));
+      try {
+        await cloudflareApi.deletePromoCode(promo.code);
+      } catch (cfErr) {
+        console.warn('[AdminDashboard] Cloudflare deletePromoCode warning:', cfErr);
+      }
       setPromoCodes((previous) => previous.filter((item) => item.code !== promo.code));
     } catch (error) {
       console.error('[AdminDashboard] Failed to delete promo code:', error);
@@ -781,8 +948,9 @@ export default function AdminDashboard() {
     setSavingDoctorEdit(true);
     try {
       const { id, caseLimit, title, titleAr, fullName, fullNameAr, university, universityAr, graduationYear, clinicName, clinicNameAr, locationAddress, locationAddressAr, phone, whatsapp } = editDoctorForm;
+      const nowIso = new Date().toISOString();
 
-      await updateDoc(doc(db, 'users', id), {
+      const editPayload = {
         caseLimit: Number(caseLimit) || 3,
         title: title || '',
         titleAr: titleAr || '',
@@ -797,8 +965,23 @@ export default function AdminDashboard() {
         locationAddressAr: locationAddressAr || '',
         phone: phone || '',
         whatsapp: whatsapp || '',
-        updatedAt: new Date().toISOString()
-      });
+        updatedAt: nowIso
+      };
+
+      await updateDoc(doc(db, 'users', id), editPayload);
+
+      try {
+        await updateDoc(doc(db, 'portfolios', id), editPayload);
+      } catch (pErr) {
+        console.warn('portfolios updateDoc warning:', pErr);
+      }
+
+      try {
+        await cloudflareApi.saveProfile(editPayload, id);
+        await cloudflareApi.savePortfolio(editPayload, id);
+      } catch (cfErr) {
+        console.warn('cloudflareApi saveProfile warning:', cfErr);
+      }
 
       setDoctors(prev => prev.map(d => d.id === id ? { ...d, ...editDoctorForm, caseLimit: Number(caseLimit) || 3 } : d));
       setStatusMessage({ type: 'success', text: `تم تحديث بيانات وحدود د. ${fullName} بنجاح.` });

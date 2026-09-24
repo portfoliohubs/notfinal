@@ -300,7 +300,7 @@ const ARTICLE_TEMPLATES = {
 // ==========================================
 // 5. Article HTML Builder (Unique SEO Pages)
 // ==========================================
-function buildArticleStaticHtml({ doctor, angleKey, baseUrl }) {
+export function buildArticleStaticHtml({ doctor, angleKey, baseUrl }) {
   const username = doctor.username || doctor.slug || slugify(doctor.fullName || 'doctor');
   const doctorUrl = `${baseUrl}/dr/${username}/`;
   const citySlug = slugify(doctor.locationAddress || doctor.locationAddressAr || 'city');
@@ -1041,4 +1041,7 @@ async function runStaticGeneration() {
   }
 }
 
-runStaticGeneration();
+const isMainModule = import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('generate-static-pages.mjs');
+if (isMainModule) {
+  runStaticGeneration();
+}

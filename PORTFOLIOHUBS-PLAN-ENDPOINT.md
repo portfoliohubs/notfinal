@@ -565,7 +565,7 @@ complete:
 
 1. Home service copy:
    - `website in Google & AI Search`
-   - `Professional fo free • appearing in Google search & AI tools answers as ChatGPT`
+   - `Professional for free • appearing in Google search & AI tools answers as ChatGPT`
    - `Professional Portfolio and CV PDF Maker for free`
    - `Easy • Free • No account needed`
    - Section heading: `PortfolioHubs Smika services`

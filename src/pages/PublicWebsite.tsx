@@ -4,6 +4,7 @@ import { Link, useRoute } from 'wouter';
 import Header from '../components/Header';
 import { db } from '../lib/firebase';
 import { cloudflareApi } from '../lib/cloudflareApiClient';
+import CONFIG from '../config';
 import type { PortfolioData } from '../types';
 
 interface PublicWebsiteData extends Omit<Partial<PortfolioData>, 'cases'> {
@@ -32,6 +33,22 @@ export default function PublicWebsite() {
     let active = true;
     const loadWebsite = async () => {
       try {
+        const cleanSlug = slug.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
+        // Check for Dr. Michael Nabil directly
+        if (cleanSlug === 'drmichaelnabil' || cleanSlug === 'michaelnabil' || cleanSlug === 'michael') {
+          window.location.replace('https://portfoliohubs.github.io/drmichaelnabil');
+          return;
+        }
+
+        // Check if slug matches any live example on GitHub Pages
+        const matchingExample = (CONFIG.portfolioIntro.liveExamples ?? []).find(
+          ex => ex.link.toLowerCase().replace(/^\/+|\/+$/g, '') === cleanSlug
+        );
+        if (matchingExample) {
+          window.location.replace(`https://portfoliohubs.github.io/${matchingExample.link}`);
+          return;
+        }
+
         // Prefer the Worker public endpoint, while retaining Firestore as a
         // backwards-compatible fallback for existing published websites.
         try {
@@ -55,7 +72,7 @@ export default function PublicWebsite() {
         }
         if (active) setWebsite(websiteSnapshot.data() as PublicWebsiteData);
       } catch (loadError) {
-        console.error('[PublicWebsite] Failed to load website:', loadError);
+        console.warn('[PublicWebsite] Note:', loadError instanceof Error ? loadError.message : 'Unable to load website');
         if (active) {
           setError(loadError instanceof Error ? loadError.message : 'Unable to load this website.');
         }

@@ -40,7 +40,7 @@ export const CONFIG = {
     headline: "Build Your Professional Dental Portfolio & CV",
     subheadline: "الاسنانجى لازم يتدلع",
     portfolioButtonTitle: "website in Google & AI Search",
-    portfolioButtonSubtitle: "Professional fo free • appearing in Google search & AI tools answers as ChatGPT",
+    portfolioButtonSubtitle: "Professional for free • appearing in Google search & AI tools answers as ChatGPT",
     cvButtonTitle: "Professional Portfolio and CV PDF Maker for free",
     cvButtonSubtitle: "Easy • Free • No account needed",
     features: [
@@ -66,7 +66,7 @@ export const CONFIG = {
     ],
     liveExamples: [
       { photo: "https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572", name: "Dr.Michael Nabil", link: "drmichaelnabil" },
-      { photo: "https://github.com/user-attachments/assets/1c669ac9-2b53-4c18-b396-821409c6ada4", name: "Dr. Hanan Sakr", link: "drhanansakr" },
+      { photo: "https://github.com/user-attachments/assets/074726c9-7627-40d3-a9c9-ddff728acaab", name: "Dr. Hanan Sakr", link: "drhanansakr" },
       { photo: "https://github.com/user-attachments/assets/1fd807ab-3d10-41ee-9d63-57f097d1eab6", name: "Dr. Roaa Adel", link: "drroaaadel" },
       { photo: "https://github.com/user-attachments/assets/57302af1-dbce-4a6c-8773-f74fc6d9669f", name: "Dr. Hossam Lotfy", link: "drhossamlotfy" },
       { photo: "https://github.com/user-attachments/assets/b9c66a94-55d2-4fbd-9500-e7acdc01a9d3", name: "Dr. Rawan Mahmoud", link: "drrawanmahmoud" },

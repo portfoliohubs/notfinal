@@ -1,13 +1,16 @@
 export function publicDoctorUrl(slugOrUrl: string): string {
   const value = slugOrUrl.trim();
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
   const slug = value
     .replace(/^https?:\/\/[^/]+\/+/, '')
     .replace(/^\/+|\/+$/g, '');
   const doctorPath = slug.startsWith('dr') ? slug : `dr${slug.replace(/^dr\/?/, '')}`;
 
-  const basePath = import.meta.env.BASE_URL.endsWith('/')
-    ? import.meta.env.BASE_URL.slice(0, -1)
-    : import.meta.env.BASE_URL;
+  if (doctorPath === 'drmichaelnabil') {
+    return 'https://portfoliohubs.github.io/drmichaelnabil';
+  }
 
-  return `${window.location.origin}${basePath}/${doctorPath}`;
+  return `https://portfoliohubs.github.io/${doctorPath}`;
 }
