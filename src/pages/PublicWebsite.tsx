@@ -9,6 +9,7 @@ import type { PortfolioData } from '../types';
 
 interface PublicWebsiteData extends Partial<PortfolioData> {
   sameAs?: string[];
+  [key: string]: any;
 }
 
 interface PublicWebsiteProps {
@@ -33,7 +34,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
   const [error, setError] = useState('');
   
   // Interactive UI State matching template
-  const [currentLang, setCurrentLang] = useState<'en' | 'ar'>('en');
+  const [currentLang, setCurrentLang] = useState<'en' | 'ar'>('ar');
   const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>('light');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('home');
@@ -50,7 +51,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           throw new Error('لم يتم تحديد عنوان الموقع المطلوب.');
         }
 
-        // Direct check for Dr. Michael Nabil
+        // Direct check for Dr. Michael Nabil founder site
         if (cleanSlug === 'drmichaelnabil' || cleanSlug === 'michaelnabil' || cleanSlug === 'michael') {
           window.location.replace('https://portfoliohubs.github.io/drmichaelnabil');
           return;
@@ -103,7 +104,21 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           }
 
           if (websiteSnapshot.exists() && active) {
-            setWebsite(websiteSnapshot.data() as PublicWebsiteData);
+            const docData = websiteSnapshot.data() as PublicWebsiteData;
+            
+            // If main doc has no cases or empty, check subcollection
+            if (!docData.cases || docData.cases.length === 0) {
+              try {
+                const subCasesSnap = await getDocs(collection(db, 'portfolios', uid, 'cases'));
+                if (!subCasesSnap.empty) {
+                  docData.cases = subCasesSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any;
+                }
+              } catch (scErr) {
+                console.warn('[PublicWebsite] Subcases note:', scErr);
+              }
+            }
+
+            setWebsite(docData);
             setLoading(false);
             return;
           }
@@ -118,7 +133,20 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           );
           const qSnap = await getDocs(q);
           if (!qSnap.empty && active) {
-            setWebsite(qSnap.docs[0].data() as PublicWebsiteData);
+            const docSnap = qSnap.docs[0];
+            const docData = docSnap.data() as PublicWebsiteData;
+            const docId = docSnap.id;
+
+            if (!docData.cases || docData.cases.length === 0) {
+              try {
+                const subCasesSnap = await getDocs(collection(db, 'portfolios', docId, 'cases'));
+                if (!subCasesSnap.empty) {
+                  docData.cases = subCasesSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any;
+                }
+              } catch {}
+            }
+
+            setWebsite(docData);
             setLoading(false);
             return;
           }
@@ -142,35 +170,6 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
     };
   }, [slug]);
 
-  // Sync Dynamic SEO Metadata
-  useEffect(() => {
-    if (!website) return;
-    const cleanSlug = slug.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
-    const displayNameEn = website.fullName || 'Doctor';
-    const displayNameAr = website.fullNameAr || website.fullName || 'طبيب أسنان';
-    
-    document.title = currentLang === 'ar' 
-      ? `${displayNameAr} | ${displayNameEn} - PortfolioHubs` 
-      : `${displayNameEn} | ${displayNameAr} - PortfolioHubs`;
-    
-    const description = `${displayNameAr} (${displayNameEn}) - ${website.titleAr || website.title || 'طبيب وجراح أسنان'}. الملف المهني والحالات السريرية وتفاصيل العيادة والتواصل.`;
-    let descriptionTag = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-    if (!descriptionTag) {
-      descriptionTag = document.createElement('meta');
-      descriptionTag.name = 'description';
-      document.head.appendChild(descriptionTag);
-    }
-    descriptionTag.content = description;
-
-    let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
-    if (!canonical) {
-      canonical = document.createElement('link');
-      canonical.rel = 'canonical';
-      document.head.appendChild(canonical);
-    }
-    canonical.href = `https://portfoliohubs.github.io/dr/${cleanSlug}`;
-  }, [slug, website, currentLang]);
-
   // Scroll spy for bottom nav active states
   useEffect(() => {
     const handleScroll = () => {
@@ -191,63 +190,168 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Data helpers
+  // -------------------------------------------------------------
+  // DYNAMIC FIELD EXTRACTION (100% Real User Data)
+  // -------------------------------------------------------------
   const isAr = currentLang === 'ar';
-  const nameEn = website?.fullName || 'Dr. Dentist';
-  const nameAr = website?.fullNameAr || website?.fullName || 'د. طبيب أسنان';
+
+  const nameEn = website?.fullName || website?.name || (website?.hero as any)?.name || 'Dr. Dentist';
+  const nameAr = website?.fullNameAr || website?.nameAr || (website?.ar as any)?.hero?.name || website?.fullName || 'د. طبيب أسنان';
   const name = isAr ? nameAr : nameEn;
 
-  const taglineEn = website?.title || 'Dental Surgeon & Specialist';
-  const taglineAr = website?.titleAr || website?.title || 'طبيب وجراح أسنان تخصصي';
+  const taglineEn = website?.title || website?.specialization || website?.tagline || (website?.hero as any)?.tagline || 'Dental Surgeon & Practitioner';
+  const taglineAr = website?.titleAr || website?.specializationAr || website?.taglineAr || (website?.ar as any)?.hero?.tagline || taglineEn;
   const tagline = isAr ? taglineAr : taglineEn;
 
-  const graduationEn = website?.graduationYear ? `Graduated Class of ${website.graduationYear}` : (website?.university || 'Dentistry Graduate');
-  const graduationAr = website?.graduationYear ? `دفعة تخرج ${website.graduationYear}` : (website?.universityAr || website?.university || 'خريج طب الأسنان');
+  const gradYear = website?.graduationYear || (website?.education as any)?.graduation_year || '';
+  const graduationEn = gradYear ? `Graduated Class of ${gradYear}` : '';
+  const graduationAr = gradYear ? `دفعة تخرج ${gradYear}` : '';
   const graduation = isAr ? graduationAr : graduationEn;
 
-  const roleEn = website?.title || 'Dental Practitioner';
-  const roleAr = website?.titleAr || 'ممارس طب الأسنان';
+  const roleEn = website?.currentPosition?.role || (website?.hero as any)?.current_position?.role || website?.title || 'Dentist';
+  const roleAr = website?.currentPosition?.roleAr || (website?.ar as any)?.hero?.current_position?.role || website?.titleAr || roleEn;
   const role = isAr ? roleAr : roleEn;
 
-  const clinicEn = website?.clinicName || 'Dental Practice Clinic';
-  const clinicAr = website?.clinicNameAr || website?.clinicName || 'عيادة الأسنان التخصصية';
+  const clinicEn = website?.clinicName || website?.currentPosition?.clinic || (website?.hero as any)?.current_position?.clinic || '';
+  const clinicAr = website?.clinicNameAr || website?.currentPosition?.clinicAr || (website?.ar as any)?.hero?.current_position?.clinic || clinicEn;
   const clinic = isAr ? clinicAr : clinicEn;
 
-  const universityEn = website?.university || 'Faculty of Dentistry';
-  const universityAr = website?.universityAr || website?.university || 'كلية طب وجراحة الفم والأسنان';
+  const universityEn = website?.university || (website?.education as any)?.university || '';
+  const universityAr = website?.universityAr || (website?.ar as any)?.education?.university || universityEn;
   const university = isAr ? universityAr : universityEn;
 
-  const profilePhoto = website?.profilePhoto || website?.profilePreview || '/logo.png';
+  const profilePhoto = website?.profilePhoto || website?.profilePreview || website?.photo || (website?.hero as any)?.profile_image || '/logo.png';
 
-  const clinicalSkills = website?.clinicalSkills || ['Comprehensive Dental Care', 'Restorative Dentistry', 'Oral Diagnosis', 'Smile Esthetics'];
-  const clinicalSkillsAr = website?.clinicalSkillsAr || ['رعاية سنية شاملة', 'حشوات وترميم الأسنان', 'التشخيص الفموي الدقيق', 'تجميل وتنسيق الابتسامة'];
+  // Skills
+  const clinicalSkillsEn: string[] = website?.clinicalSkills || (website?.skills as any)?.clinical || [];
+  const clinicalSkillsAr: string[] = website?.clinicalSkillsAr || (website?.ar as any)?.skills?.clinical || clinicalSkillsEn;
 
-  const digitalSkills = website?.digitalSkills || ['Digital Smile Design', 'CAD/CAM Workflow', 'Intraoral 3D Scanning'];
-  const digitalSkillsAr = website?.digitalSkillsAr || ['تصميم الابتسامة الرقمي DSD', 'تقنيات CAD/CAM الحديثة', 'المسح الفموي الرقمي ثلاثي الأبعاد'];
+  const digitalSkillsEn: string[] = website?.digitalSkills || (website?.skills as any)?.digital || [];
+  const digitalSkillsAr: string[] = website?.digitalSkillsAr || (website?.ar as any)?.skills?.digital || digitalSkillsEn;
 
-  const softSkills = website?.softSkills || ['Patient Communication', 'Treatment Planning', 'Case Presentation'];
-  const softSkillsAr = website?.softSkillsAr || ['التواصل الفعّال مع المرضى', 'وضع الخطط العلاجية الشاملة', 'شرح وتبسيط خطوات العلاج'];
+  const softSkillsEn: string[] = website?.softSkills || (website?.skills as any)?.soft || [];
+  const softSkillsAr: string[] = website?.softSkillsAr || (website?.ar as any)?.skills?.soft || softSkillsEn;
 
-  const timeline = website?.timeline || [
-    { year: website?.graduationYear || '2023', event: `Graduated from ${universityEn}`, eventAr: `التخرج من ${universityAr}` },
-    { year: 'Present', event: `Clinical Practitioner at ${clinicEn}`, eventAr: `طبيب ممارس في ${clinicAr}` }
-  ];
+  const hasSkills = clinicalSkillsEn.length > 0 || digitalSkillsEn.length > 0 || softSkillsEn.length > 0;
 
-  const cases = website?.cases || [];
+  // Timeline
+  const rawTimeline: Array<{ year?: string; event?: string; eventAr?: string }> = website?.timeline || (website?.education as any)?.timeline || [];
+  const timeline = useMemo(() => {
+    if (rawTimeline && rawTimeline.length > 0) return rawTimeline;
+    const fallbackList = [];
+    if (gradYear && universityEn) {
+      fallbackList.push({
+        year: gradYear,
+        event: `Graduated from ${universityEn}`,
+        eventAr: `التخرج من ${universityAr}`
+      });
+    }
+    if (clinicEn) {
+      fallbackList.push({
+        year: 'Present',
+        event: `Clinical practice at ${clinicEn}`,
+        eventAr: `ممارسة العمل الإكلينيكي في ${clinicAr}`
+      });
+    }
+    return fallbackList;
+  }, [rawTimeline, gradYear, universityEn, universityAr, clinicEn, clinicAr]);
 
-  const address = isAr ? (website?.locationAddressAr || website?.locationAddress) : (website?.locationAddress || website?.locationAddressAr);
-  const phone = website?.phone || '';
-  const whatsapp = website?.whatsapp || website?.phone || '';
-  const email = website?.email || '';
+  // Degrees
+  const master = website?.masterDegree || (website?.education as any)?.master;
+  const phd = website?.phdDegree || (website?.education as any)?.phd;
 
-  const whatsappClean = whatsapp.replace(/[^0-9]/g, '');
+  // Cases
+  const rawCases: any[] = website?.cases || (website as any)?.clinical_cases || [];
+  const normalizedCases = useMemo(() => {
+    const list: Array<{
+      id: string;
+      title: string;
+      titleAr: string;
+      category: string;
+      categoryAr: string;
+      description: string;
+      descriptionAr: string;
+      photo: string;
+    }> = [];
+
+    rawCases.forEach((item, idx) => {
+      // If category container shape (Hugo format)
+      if (item.cases && Array.isArray(item.cases)) {
+        item.cases.forEach((sub: any, sIdx: number) => {
+          list.push({
+            id: sub.id || `case_${idx}_${sIdx}`,
+            title: sub.alt || sub.title || item.category || 'Clinical Case',
+            titleAr: sub.alt_ar || sub.titleAr || item.category_ar || 'حالة سريرية',
+            category: item.category || 'Dentistry',
+            categoryAr: item.category_ar || item.category || 'طب الأسنان',
+            description: sub.description || '',
+            descriptionAr: sub.description_ar || sub.description || '',
+            photo: sub.photo || sub.preview || ''
+          });
+        });
+      } else {
+        // Flat case object
+        const photoUrl = item.afterPhoto?.url || item.afterPhoto?.previewUrl || item.photo || item.preview || item.photos?.[0]?.url || item.photos?.[0]?.previewUrl || item.beforePhoto?.url || '';
+        list.push({
+          id: item.id || `case_${idx}`,
+          title: item.title || item.alt || item.category || 'Clinical Case',
+          titleAr: item.titleAr || item.alt_ar || item.categoryAr || item.category || 'حالة سريرية',
+          category: item.category || 'General',
+          categoryAr: item.categoryAr || item.category || 'علاج أسنان',
+          description: item.description || '',
+          descriptionAr: item.descriptionAr || item.description || '',
+          photo: photoUrl
+        });
+      }
+    });
+
+    return list;
+  }, [rawCases]);
+
+  // Contact
+  const address = isAr 
+    ? (website?.locationAddressAr || (website?.ar as any)?.contact?.location?.address || website?.locationAddress || (website?.contact as any)?.location?.address || '')
+    : (website?.locationAddress || (website?.contact as any)?.location?.address || website?.locationAddressAr || '');
+  
+  const phone = website?.phone || (website?.contact as any)?.phone || '';
+  const whatsapp = website?.whatsapp || (website?.contact as any)?.whatsapp || website?.phone || '';
+  const email = website?.email || (website?.contact as any)?.email || '';
+
+  const whatsappClean = (whatsapp || phone).replace(/[^0-9]/g, '');
   const whatsappUrl = whatsappClean ? `https://wa.me/${whatsappClean}` : '';
 
-  // Handle PDF Generation
+  const instagram = website?.instagram || (website?.contact as any)?.instagram || '';
+  const facebook = website?.facebook || (website?.contact as any)?.facebook || '';
+  const linkedin = website?.linkedin || (website?.contact as any)?.linkedin || '';
+
+  // Dynamic SEO Metadata
+  useEffect(() => {
+    if (!website) return;
+    const cleanSlug = slug.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
+    document.title = isAr ? `${nameAr} | ${nameEn} - PortfolioHubs` : `${nameEn} | ${nameAr} - PortfolioHubs`;
+    
+    const description = `${nameAr} (${nameEn}) - ${tagline}. الملف المهني والحالات السريرية وتفاصيل العيادة والتواصل.`;
+    let descriptionTag = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!descriptionTag) {
+      descriptionTag = document.createElement('meta');
+      descriptionTag.name = 'description';
+      document.head.appendChild(descriptionTag);
+    }
+    descriptionTag.content = description;
+
+    let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement('link');
+      canonical.rel = 'canonical';
+      document.head.appendChild(canonical);
+    }
+    canonical.href = `https://portfoliohubs.github.io/dr/${cleanSlug}`;
+  }, [slug, website, isAr, nameAr, nameEn, tagline]);
+
+  // PDF Generation
   const handleDownloadCvPdf = async () => {
     setDownloadingPdf(true);
     try {
-      // Load pdfMake scripts dynamically if not present
       if (!(window as any).pdfMake) {
         await new Promise((resolve) => {
           const s1 = document.createElement('script');
@@ -280,7 +384,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
         content: [
           { text: nameEn.toUpperCase(), fontSize: 28, bold: true, color: '#ffffff', alignment: 'center', margin: [0, 40, 0, 8] },
           { text: taglineEn, fontSize: 14, color: '#3b82f6', bold: true, alignment: 'center', margin: [0, 0, 0, 6] },
-          { text: graduationEn, fontSize: 12, color: '#9ca3af', fontStyle: 'italic', alignment: 'center', margin: [0, 0, 0, 15] },
+          graduationEn ? { text: graduationEn, fontSize: 12, color: '#9ca3af', fontStyle: 'italic', alignment: 'center', margin: [0, 0, 0, 15] } : null,
           {
             canvas: [{ type: 'line', x1: 200, y1: 0, x2: 315, y2: 0, lineWidth: 2, lineColor: '#3b82f6' }],
             alignment: 'center',
@@ -289,10 +393,12 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           phone ? { text: `Phone: ${phone}`, fontSize: 11, alignment: 'center', margin: [0, 2, 0, 2] } : null,
           whatsapp ? { text: `WhatsApp: ${whatsapp}`, fontSize: 11, alignment: 'center', margin: [0, 2, 0, 2] } : null,
           email ? { text: `Email: ${email}`, fontSize: 11, alignment: 'center', margin: [0, 2, 0, 2] } : null,
-          { text: `University: ${universityEn}`, fontSize: 11, alignment: 'center', margin: [0, 8, 0, 20] },
-          { text: 'PROFESSIONAL SKILLS', fontSize: 16, bold: true, color: '#3b82f6', alignment: 'center', margin: [0, 20, 0, 10] },
-          { text: clinicalSkills.join('  •  '), fontSize: 11, alignment: 'center', margin: [0, 0, 0, 15] },
-          { text: 'COMPLETE PORTFOLIO & CLINICAL CASES', fontSize: 14, bold: true, color: '#ffffff', alignment: 'center', margin: [0, 30, 0, 10] },
+          universityEn ? { text: `University: ${universityEn}`, fontSize: 11, alignment: 'center', margin: [0, 8, 0, 20] } : null,
+          clinicalSkillsEn.length > 0 ? [
+            { text: 'PROFESSIONAL SKILLS', fontSize: 16, bold: true, color: '#3b82f6', alignment: 'center', margin: [0, 20, 0, 10] },
+            { text: clinicalSkillsEn.join('  •  '), fontSize: 11, alignment: 'center', margin: [0, 0, 0, 15] }
+          ] : null,
+          { text: 'OFFICIAL MEDICAL PORTFOLIO', fontSize: 14, bold: true, color: '#ffffff', alignment: 'center', margin: [0, 30, 0, 10] },
           { text: window.location.href, fontSize: 12, color: '#3b82f6', decoration: 'underline', alignment: 'center' }
         ].filter(Boolean)
       };
@@ -476,6 +582,15 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           color: white; border-radius: 1rem;
         }
         .doctor-portfolio-page .university-name { font-size: 1.8rem; margin-bottom: 0.5rem; }
+        .doctor-portfolio-page .degrees-container {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem;
+        }
+        .doctor-portfolio-page .degree-item {
+          display: flex; gap: 1.5rem; padding: 2rem; background: var(--bg-secondary);
+          border-radius: 1rem; border: 1px solid var(--border-color);
+        }
+        .doctor-portfolio-page .degree-icon { font-size: 2rem; color: var(--primary-color); }
+        .doctor-portfolio-page .degree-year { color: var(--text-light); font-size: 0.9rem; }
         .doctor-portfolio-page .timeline-container { padding: 2rem; background: var(--bg-secondary); border-radius: 1rem; }
         .doctor-portfolio-page .timeline-title { font-size: 1.8rem; margin-bottom: 2rem; text-align: center; }
         .doctor-portfolio-page .timeline { position: relative; padding: 2rem 0; }
@@ -499,8 +614,6 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           font-weight: 700; color: var(--primary-color); font-size: 1.2rem; display: block; margin-bottom: 0.5rem;
         }
         .doctor-portfolio-page .cases-container { display: flex; flex-direction: column; gap: 4rem; }
-        .doctor-portfolio-page .case-category { padding: 2rem; background: var(--bg-secondary); border-radius: 1rem; }
-        .doctor-portfolio-page .case-category-title { font-size: 2rem; margin-bottom: 2rem; text-align: center; color: var(--primary-color); }
         .doctor-portfolio-page .cases-grid {
           display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 2rem; justify-items: center;
         }
@@ -654,9 +767,9 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
             </button>
             <ul className="nav-links">
               <li><a href="#home" onClick={() => setMobileNavOpen(false)}>{isAr ? 'الملف الشخصي' : 'Profile'}</a></li>
-              <li><a href="#skills" onClick={() => setMobileNavOpen(false)}>{isAr ? 'المهارات' : 'Skills'}</a></li>
-              <li><a href="#education" onClick={() => setMobileNavOpen(false)}>{isAr ? 'التعليم' : 'Education'}</a></li>
-              <li><a href="#cases" onClick={() => setMobileNavOpen(false)}>{isAr ? 'الحالات السريرية' : 'Clinical Cases'}</a></li>
+              {hasSkills && <li><a href="#skills" onClick={() => setMobileNavOpen(false)}>{isAr ? 'المهارات' : 'Skills'}</a></li>}
+              {(university || timeline.length > 0) && <li><a href="#education" onClick={() => setMobileNavOpen(false)}>{isAr ? 'التعليم' : 'Education'}</a></li>}
+              {normalizedCases.length > 0 && <li><a href="#cases" onClick={() => setMobileNavOpen(false)}>{isAr ? 'الحالات السريرية' : 'Clinical Cases'}</a></li>}
               <li><a href="#contact" onClick={() => setMobileNavOpen(false)}>{isAr ? 'التواصل' : 'Contact'}</a></li>
             </ul>
           </div>
@@ -680,116 +793,161 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
             </div>
             
             <h1 className="hero-name" id="heroName">{name}</h1>
-            <p className="hero-tagline" id="heroTagline">{tagline}</p>
-            <p className="hero-graduation" id="heroGraduation">{graduation}</p>
+            {tagline && <p className="hero-tagline" id="heroTagline">{tagline}</p>}
+            {graduation && <p className="hero-graduation" id="heroGraduation">{graduation}</p>}
             
-            <div className="hero-position" id="heroPosition">
-              <p>
-                <span>{isAr ? 'يعمل حالياً كـ ' : 'Now working as '}</span>
-                <strong id="heroRole">{role}</strong>
-                <span>{isAr ? ' في ' : ' at '}</span>
-                <strong id="heroClinic">{clinic}</strong>
-              </p>
-            </div>
+            {(clinic || role) && (
+              <div className="hero-position" id="heroPosition">
+                <p>
+                  <span>{isAr ? 'يعمل حالياً كـ ' : 'Now working as '}</span>
+                  <strong id="heroRole">{role}</strong>
+                  {clinic && (
+                    <>
+                      <span>{isAr ? ' في ' : ' at '}</span>
+                      <strong id="heroClinic">{clinic}</strong>
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
           </div>
         </section>
 
         {/* Skills Section */}
-        <section id="skills" className="section skills-section">
-          <div className="section-header">
-            <div className="icon-circle">
-              <i className="fas fa-star"></i>
-            </div>
-            <h2 className="section-title">{isAr ? 'المهارات المهنية' : 'Professional Skills'}</h2>
-          </div>
-          
-          <div className="skills-container">
-            <div className="skill-category">
-              <h3 className="skill-category-title">
-                <i className="fas fa-tooth"></i>
-                <span>{isAr ? 'المهارات الإكلينيكية' : 'Clinical Skills'}</span>
-              </h3>
-              <div className="skill-list" id="clinicalSkills">
-                {(isAr ? clinicalSkillsAr : clinicalSkills).map((skill, i) => (
-                  <div className="skill-item" key={i}>
-                    <span className="skill-number">{i + 1}</span>
-                    <span className="skill-text">{skill}</span>
-                  </div>
-                ))}
+        {hasSkills && (
+          <section id="skills" className="section skills-section">
+            <div className="section-header">
+              <div className="icon-circle">
+                <i className="fas fa-star"></i>
               </div>
+              <h2 className="section-title">{isAr ? 'المهارات المهنية' : 'Professional Skills'}</h2>
             </div>
             
-            <div className="skill-category">
-              <h3 className="skill-category-title">
-                <i className="fas fa-laptop"></i>
-                <span>{isAr ? 'المهارات الرقمية' : 'Digital Skills'}</span>
-              </h3>
-              <div className="skill-list" id="digitalSkills">
-                {(isAr ? digitalSkillsAr : digitalSkills).map((skill, i) => (
-                  <div className="skill-item" key={i}>
-                    <span className="skill-number">{i + 1}</span>
-                    <span className="skill-text">{skill}</span>
+            <div className="skills-container">
+              {clinicalSkillsEn.length > 0 && (
+                <div className="skill-category">
+                  <h3 className="skill-category-title">
+                    <i className="fas fa-tooth"></i>
+                    <span>{isAr ? 'المهارات الإكلينيكية' : 'Clinical Skills'}</span>
+                  </h3>
+                  <div className="skill-list" id="clinicalSkills">
+                    {(isAr ? clinicalSkillsAr : clinicalSkillsEn).map((skill, i) => (
+                      <div className="skill-item" key={i}>
+                        <span className="skill-number">{i + 1}</span>
+                        <span className="skill-text">{skill}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-            
-            <div className="skill-category">
-              <h3 className="skill-category-title">
-                <i className="fas fa-users"></i>
-                <span>{isAr ? 'المهارات الشخصية والقيادية' : 'Soft Skills'}</span>
-              </h3>
-              <div className="skill-list" id="softSkills">
-                {(isAr ? softSkillsAr : softSkills).map((skill, i) => (
-                  <div className="skill-item" key={i}>
-                    <span className="skill-number">{i + 1}</span>
-                    <span className="skill-text">{skill}</span>
+                </div>
+              )}
+              
+              {digitalSkillsEn.length > 0 && (
+                <div className="skill-category">
+                  <h3 className="skill-category-title">
+                    <i className="fas fa-laptop"></i>
+                    <span>{isAr ? 'المهارات الرقمية' : 'Digital Skills'}</span>
+                  </h3>
+                  <div className="skill-list" id="digitalSkills">
+                    {(isAr ? digitalSkillsAr : digitalSkillsEn).map((skill, i) => (
+                      <div className="skill-item" key={i}>
+                        <span className="skill-number">{i + 1}</span>
+                        <span className="skill-text">{skill}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Education Section */}
-        <section id="education" className="section education-section">
-          <div className="section-header">
-            <div className="icon-circle">
-              <i className="fas fa-graduation-cap"></i>
-            </div>
-            <h2 className="section-title">{isAr ? 'التعليم والتأهيل' : 'Education & Qualifications'}</h2>
-          </div>
-          
-          <div className="education-container">
-            <div className="university-info">
-              <h3 className="university-name" id="universityName">{university}</h3>
-              {website.graduationYear && (
-                <p className="graduation-year">
-                  <span>{isAr ? 'سنة التخرج: ' : 'Graduated: '}</span>
-                  <span id="gradYear">{website.graduationYear}</span>
-                </p>
+                </div>
+              )}
+              
+              {softSkillsEn.length > 0 && (
+                <div className="skill-category">
+                  <h3 className="skill-category-title">
+                    <i className="fas fa-users"></i>
+                    <span>{isAr ? 'المهارات الشخصية والقيادية' : 'Soft Skills'}</span>
+                  </h3>
+                  <div className="skill-list" id="softSkills">
+                    {(isAr ? softSkillsAr : softSkillsEn).map((skill, i) => (
+                      <div className="skill-item" key={i}>
+                        <span className="skill-number">{i + 1}</span>
+                        <span className="skill-text">{skill}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
-            
-            <div className="timeline-container">
-              <h3 className="timeline-title">{isAr ? 'المسيرة المهنية والأكاديمية' : 'Career Timeline'}</h3>
-              <div className="timeline" id="timeline">
-                {timeline.map((item, i) => (
-                  <div className="timeline-item" key={i}>
-                    <div className="timeline-marker"></div>
-                    <div className="timeline-content">
-                      <span className="timeline-year">{item.year}</span>
-                      <p className="timeline-event">{isAr ? (item.eventAr || item.event) : (item.event || item.eventAr)}</p>
-                    </div>
-                  </div>
-                ))}
+          </section>
+        )}
+
+        {/* Education & Timeline Section */}
+        {(university || timeline.length > 0 || master || phd) && (
+          <section id="education" className="section education-section">
+            <div className="section-header">
+              <div className="icon-circle">
+                <i className="fas fa-graduation-cap"></i>
               </div>
+              <h2 className="section-title">{isAr ? 'التعليم والتأهيل' : 'Education & Qualifications'}</h2>
             </div>
-          </div>
-        </section>
+            
+            <div className="education-container">
+              {university && (
+                <div className="university-info">
+                  <h3 className="university-name" id="universityName">{university}</h3>
+                  {gradYear && (
+                    <p className="graduation-year">
+                      <span>{isAr ? 'سنة التخرج: ' : 'Graduated: '}</span>
+                      <span id="gradYear">{gradYear}</span>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {(master?.obtained || phd?.obtained) && (
+                <div className="degrees-container">
+                  {master?.obtained && (
+                    <div className="degree-item">
+                      <i className="fas fa-award degree-icon"></i>
+                      <div className="degree-info">
+                        <strong>{isAr ? 'درجة الماجستير' : "Master's Degree"}</strong>
+                        <p>{isAr ? (master.titleAr || master.title) : master.title}</p>
+                        {master.year && <span className="degree-year">({master.year})</span>}
+                      </div>
+                    </div>
+                  )}
+                  {phd?.obtained && (
+                    <div className="degree-item">
+                      <i className="fas fa-award degree-icon"></i>
+                      <div className="degree-info">
+                        <strong>{isAr ? 'درجة الدكتوراه' : 'PhD Degree'}</strong>
+                        <p>{isAr ? (phd.titleAr || phd.title) : phd.title}</p>
+                        {phd.year && <span className="degree-year">({phd.year})</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {timeline.length > 0 && (
+                <div className="timeline-container">
+                  <h3 className="timeline-title">{isAr ? 'المسيرة المهنية والأكاديمية' : 'Career Timeline'}</h3>
+                  <div className="timeline" id="timeline">
+                    {timeline.map((item, i) => (
+                      <div className="timeline-item" key={i}>
+                        <div className="timeline-marker"></div>
+                        <div className="timeline-content">
+                          <span className="timeline-year">{item.year}</span>
+                          <p className="timeline-event">{isAr ? (item.eventAr || item.event) : (item.event || item.eventAr)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* Clinical Cases Section */}
-        {cases.length > 0 && (
+        {normalizedCases.length > 0 && (
           <section id="cases" className="section cases-section">
             <div className="section-header">
               <div className="icon-circle">
@@ -801,25 +959,27 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
             
             <div className="cases-container" id="casesContainer">
               <div className="cases-grid">
-                {cases.map((c, idx) => {
-                  const caseTitle = isAr ? (c.titleAr || c.title || c.descriptionAr || c.description) : (c.title || c.titleAr || c.description || c.descriptionAr);
+                {normalizedCases.map((c) => {
+                  const caseTitle = isAr ? (c.titleAr || c.title) : (c.title || c.titleAr);
                   const caseDesc = isAr ? (c.descriptionAr || c.description) : (c.description || c.descriptionAr);
-                  const photoSrc = c.afterPhoto?.url || c.afterPhoto?.previewUrl || c.photos?.[0]?.url || c.photos?.[0]?.previewUrl || c.beforePhoto?.url || '';
+                  const caseCategory = isAr ? (c.categoryAr || c.category) : (c.category || c.categoryAr);
 
                   return (
-                    <div className="case-card" key={c.id || idx}>
-                      <div className="case-image-wrapper">
-                        <img 
-                          src={photoSrc} 
-                          alt={caseTitle || 'Clinical case'} 
-                          className="case-image" 
-                          loading="lazy"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      </div>
+                    <div className="case-card" key={c.id}>
+                      {c.photo && (
+                        <div className="case-image-wrapper">
+                          <img 
+                            src={c.photo} 
+                            alt={caseTitle || 'Clinical case'} 
+                            className="case-image" 
+                            loading="lazy"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
                       <div className="case-description">
                         <h4 style={{ fontWeight: 700, marginBottom: 8, color: 'var(--primary-color)' }}>
-                          {c.category || (isAr ? 'حالة سريرية' : 'Treatment Case')}
+                          {caseCategory || (isAr ? 'حالة سريرية' : 'Treatment Case')}
                         </h4>
                         <p>{caseDesc || caseTitle || (isAr ? 'توثيق سريري متقدم' : 'Advanced clinical documentation')}</p>
                       </div>
@@ -862,7 +1022,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
                   </div>
                   <div className="contact-info">
                     <span className="contact-label">{isAr ? 'واتساب' : 'WhatsApp'}</span>
-                    <span className="contact-value" dir="ltr">{whatsapp}</span>
+                    <span className="contact-value" dir="ltr">{whatsapp || phone}</span>
                   </div>
                 </a>
               )}
@@ -880,13 +1040,13 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
               )}
             </div>
             
-            {(website.instagram || website.facebook || website.linkedin) && (
+            {(instagram || facebook || linkedin) && (
               <div className="social-media">
                 <h3 className="social-title">{isAr ? 'تابعني على منصات التواصل' : 'Follow Me'}</h3>
                 <div className="social-links" id="socialLinks">
-                  {website.instagram && (
+                  {instagram && (
                     <a 
-                      href={website.instagram.startsWith('http') ? website.instagram : `https://instagram.com/${website.instagram}`} 
+                      href={instagram.startsWith('http') ? instagram : `https://instagram.com/${instagram}`} 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="social-link instagram" 
@@ -895,9 +1055,9 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
                       <i className="fab fa-instagram"></i>
                     </a>
                   )}
-                  {website.facebook && (
+                  {facebook && (
                     <a 
-                      href={website.facebook.startsWith('http') ? website.facebook : `https://facebook.com/${website.facebook}`} 
+                      href={facebook.startsWith('http') ? facebook : `https://facebook.com/${facebook}`} 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="social-link facebook" 
@@ -906,9 +1066,9 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
                       <i className="fab fa-facebook"></i>
                     </a>
                   )}
-                  {website.linkedin && (
+                  {linkedin && (
                     <a 
-                      href={website.linkedin.startsWith('http') ? website.linkedin : `https://linkedin.com/in/${website.linkedin}`} 
+                      href={linkedin.startsWith('http') ? linkedin : `https://linkedin.com/in/${linkedin}`} 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="social-link linkedin" 
@@ -927,7 +1087,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
                 <p className="location-address">{address}</p>
                 <div className="map-container">
                   <iframe 
-                    src={`https://maps.google.com/maps?q=${encodeURIComponent(`${clinicEn} ${address}`)}&hl=en&z=14&output=embed`}
+                    src={`https://maps.google.com/maps?q=${encodeURIComponent(`${clinic || name} ${address}`)}&hl=en&z=14&output=embed`}
                     width="100%" 
                     height="300" 
                     style={{ border: 0 }} 
@@ -937,7 +1097,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
                   />
                 </div>
                 <a 
-                  href={`https://maps.google.com/maps/search/?api=1&query=${encodeURIComponent(`${clinicEn} ${address}`)}`} 
+                  href={`https://maps.google.com/maps/search/?api=1&query=${encodeURIComponent(`${clinic || name} ${address}`)}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="btn btn-secondary"
@@ -959,18 +1119,24 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
               <i className="fas fa-user"></i>
               <span>{isAr ? 'الملف' : 'Profile'}</span>
             </a>
-            <a href="#skills" className={`nav-item ${activeSection === 'skills' ? 'active' : ''}`}>
-              <i className="fas fa-star"></i>
-              <span>{isAr ? 'المهارات' : 'Skills'}</span>
-            </a>
-            <a href="#education" className={`nav-item ${activeSection === 'education' ? 'active' : ''}`}>
-              <i className="fas fa-graduation-cap"></i>
-              <span>{isAr ? 'التعليم' : 'Education'}</span>
-            </a>
-            <a href="#cases" className={`nav-item ${activeSection === 'cases' ? 'active' : ''}`}>
-              <i className="fas fa-tooth"></i>
-              <span>{isAr ? 'الحالات' : 'Cases'}</span>
-            </a>
+            {hasSkills && (
+              <a href="#skills" className={`nav-item ${activeSection === 'skills' ? 'active' : ''}`}>
+                <i className="fas fa-star"></i>
+                <span>{isAr ? 'المهارات' : 'Skills'}</span>
+              </a>
+            )}
+            {(university || timeline.length > 0) && (
+              <a href="#education" className={`nav-item ${activeSection === 'education' ? 'active' : ''}`}>
+                <i className="fas fa-graduation-cap"></i>
+                <span>{isAr ? 'التعليم' : 'Education'}</span>
+              </a>
+            )}
+            {normalizedCases.length > 0 && (
+              <a href="#cases" className={`nav-item ${activeSection === 'cases' ? 'active' : ''}`}>
+                <i className="fas fa-tooth"></i>
+                <span>{isAr ? 'الحالات' : 'Cases'}</span>
+              </a>
+            )}
             <a href="#contact" className={`nav-item ${activeSection === 'contact' ? 'active' : ''}`}>
               <i className="fas fa-envelope"></i>
               <span>{isAr ? 'تواصل' : 'Contact'}</span>
