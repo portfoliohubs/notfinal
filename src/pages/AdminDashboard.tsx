@@ -62,6 +62,7 @@ import {
   Tag
 } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
+import { publicDoctorUrl } from '../lib/publicSiteUrl';
 import Header from '../components/Header';
 import { INITIAL_BLOG_ARTICLES, BLOG_CATEGORIES, BlogArticle } from '../data/blogArticlesData';
 import CONFIG from '../config';
@@ -552,14 +553,7 @@ export default function AdminDashboard() {
   }, [doctors]);
 
   const getDoctorPublicUrl = (doctor: PortfolioRecord) => {
-    const raw = (doctor.slug || doctor.username || doctor.fullName || doctor.id || 'doctor')
-      .toString()
-      .trim()
-      .toLowerCase()
-      .replace(/^dr-?/, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'doctor';
-    return `/dr/${raw}`;
+    return publicDoctorUrl(doctor);
   };
 
   // 5. Action: Toggle Suspend / Activate Account

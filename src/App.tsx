@@ -15,32 +15,10 @@ import { getServiceById } from './services';
 import PlatformPage from './pages/PlatformPage';
 import ContextAwareChatbot from './components/ContextAwareChatbot';
 
-function getDynamicRouterBase(): string | undefined {
-  if (typeof window === 'undefined') return undefined;
-  const pathSegments = window.location.pathname.split('/').filter(Boolean);
-  const knownRoutes = new Set([
-    'login', 'dashboard', 'admin', 'website', 'portfolio', 'cv',
-    'dsd-students', 'professional-dsd', 'blog', 'docs', 'about',
-    'pricing', 'contact', 'privacy', 'terms', 'changelog', 'status', 'dr'
-  ]);
-
-  if (pathSegments.length > 0 && !knownRoutes.has(pathSegments[0]) && !pathSegments[0].startsWith('dr')) {
-    return `/${pathSegments[0]}`;
-  }
-
-  const rawBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : '/';
-  if (rawBase && rawBase !== '/' && rawBase !== './') {
-    return rawBase.replace(/\/$/, '');
-  }
-  return undefined;
-}
-
 export default function App() {
-  const base = getDynamicRouterBase();
-
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-      <Router base={base}>
+      <Router>
         <Switch>
         <Route path="/" component={HomePage} />
         <Route path="/login" component={Login} />
@@ -69,6 +47,8 @@ export default function App() {
         <Route path="/status"><PlatformPage kind="status" /></Route>
         <Route path="/dr:slug" component={PublicWebsite} />
         <Route path="/dr/:slug" component={PublicWebsite} />
+        {/* Direct doctor vanity path fallback (e.g., /michael1 or /dr-michael1) */}
+        <Route path="/:slug" component={PublicWebsite} />
         {/* Fallback route */}
         <Route component={HomePage} />
         </Switch>

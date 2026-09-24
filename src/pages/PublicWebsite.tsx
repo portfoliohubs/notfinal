@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { Link, useRoute } from 'wouter';
 import Header from '../components/Header';
 import { db } from '../lib/firebase';
 import { cloudflareApi } from '../lib/cloudflareApiClient';
+import { getCleanDoctorSlug } from '../lib/publicSiteUrl';
 import CONFIG from '../config';
 import type { PortfolioData } from '../types';
 
@@ -22,18 +23,39 @@ interface PublicWebsiteData extends Omit<Partial<PortfolioData>, 'cases'> {
   }>;
 }
 
-export default function PublicWebsite() {
+interface PublicWebsiteProps {
+  slug?: string;
+  params?: { slug?: string };
+}
+
+export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteProps = {}) {
   const [, compactParams] = useRoute('/dr:slug');
   const [, slashParams] = useRoute('/dr/:slug');
-  const slug = compactParams?.slug || slashParams?.slug || '';
+  const [, directParams] = useRoute('/:slug');
+  
+  // Resolve slug from props, route params, or current pathname
+  const pathnameSlug = typeof window !== 'undefined' 
+    ? window.location.pathname.replace(/^\/dr\/?/, '').replace(/^\/+|\/+$/g, '') 
+    : '';
+
+  const rawSlug = propSlug || params?.slug || slashParams?.slug || compactParams?.slug || directParams?.slug || pathnameSlug || '';
+  const slug = getCleanDoctorSlug(rawSlug);
+
   const [website, setWebsite] = useState<PublicWebsiteData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let active = true;
     const loadWebsite = async () => {
+      setLoading(true);
+      setError('');
       try {
-        const cleanSlug = slug.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
+        const cleanSlug = slug;
+        if (!cleanSlug) {
+          throw new Error('لم يتم تحديد عنوان الموقع المطلوب.');
+        }
+
         // Check for Dr. Michael Nabil directly
         if (cleanSlug === 'drmichaelnabil' || cleanSlug === 'michaelnabil' || cleanSlug === 'michael') {
           window.location.replace('https://portfoliohubs.github.io/drmichaelnabil');
@@ -49,19 +71,19 @@ export default function PublicWebsite() {
           return;
         }
 
-        // Prefer the Worker public endpoint, while retaining Firestore as a
-        // backwards-compatible fallback for existing published websites.
+        // 1. Prefer the Worker public endpoint
         try {
           const response = await cloudflareApi.getPublishedWebsite(cleanSlug);
           if (active && response?.data) {
             setWebsite(response.data);
+            setLoading(false);
             return;
           }
         } catch (apiError) {
-          console.warn('[PublicWebsite] Cloudflare API unavailable; using Firebase fallback.', apiError);
+          console.warn('[PublicWebsite] Cloudflare API notice:', apiError);
         }
 
-        // Check slugs collection
+        // 2. Check slugs collection in Firestore
         let uid = '';
         let slugSnap = await getDoc(doc(db, 'slugs', cleanSlug));
         if (!slugSnap.exists()) {
@@ -73,10 +95,10 @@ export default function PublicWebsite() {
         if (slugSnap.exists()) {
           uid = slugSnap.data().uid || '';
         } else {
-          // Check if cleanSlug is directly a UID
           uid = cleanSlug;
         }
 
+        // 3. Load portfolio by UID
         if (uid) {
           let websiteSnapshot = await getDoc(doc(db, 'published_portfolios', uid));
           if (!websiteSnapshot.exists()) {
@@ -88,20 +110,39 @@ export default function PublicWebsite() {
 
           if (websiteSnapshot.exists() && active) {
             setWebsite(websiteSnapshot.data() as PublicWebsiteData);
+            setLoading(false);
             return;
           }
         }
 
-        throw new Error('This website could not be found or is not published yet.');
+        // 4. Fallback search by slug field in portfolios collection
+        try {
+          const q = query(
+            collection(db, 'portfolios'),
+            where('slug', 'in', [cleanSlug, `dr-${cleanSlug}`, `dr${cleanSlug}`]),
+            limit(1)
+          );
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty && active) {
+            setWebsite(qSnap.docs[0].data() as PublicWebsiteData);
+            setLoading(false);
+            return;
+          }
+        } catch (queryErr) {
+          console.warn('[PublicWebsite] Query fallback notice:', queryErr);
+        }
+
+        throw new Error('هذا الموقع غير متاح حالياً أو لم يتم اعتماده ونشره بعد.');
       } catch (loadError) {
         console.warn('[PublicWebsite] Note:', loadError instanceof Error ? loadError.message : 'Unable to load website');
         if (active) {
-          setError(loadError instanceof Error ? loadError.message : 'Unable to load this website.');
+          setError(loadError instanceof Error ? loadError.message : 'تعذر تحميل هذا الموقع.');
+          setLoading(false);
         }
       }
     };
 
-    if (slug) void loadWebsite();
+    void loadWebsite();
     return () => {
       active = false;
     };

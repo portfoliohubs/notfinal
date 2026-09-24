@@ -220,7 +220,7 @@ export const DOCS_ARTICLES: DocArticle[] = [
         id: 'url-structure',
         title: 'هيكل الرابط المهني الدائم',
         level: 2,
-        content: 'يحصل كل طبيب على رابط رسمي سريع التحميل ومحمي بشهادة أمان SSL عالمية:\n\n`https://portfoliohubs.pages.dev/dr[اسمك]`'
+        content: 'يحصل كل طبيب على رابط رسمي سريع التحميل ومحمي بشهادة أمان SSL عالمية:\n\n`https://portfoliohubs.github.io/dr/[اسمك]`'
       }
     ]
   }

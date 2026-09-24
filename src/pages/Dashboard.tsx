@@ -40,6 +40,7 @@ import BentoGridServices from '../components/BentoGridServices';
 import CONFIG from '../config';
 import { processImageToBase64 } from '../lib/imageProcessor';
 import { uploadBatchResilient } from '../lib/storageHelper';
+import { publicDoctorUrl } from '../lib/publicSiteUrl';
 import ClinicalCaseCard from '../components/ClinicalCaseCard';
 import UpgradeModal from '../components/UpgradeModal';
 import { 
@@ -744,7 +745,7 @@ export default function Dashboard() {
 
             {portfolio.status === 'published' && (
               <a
-                href={`https://portfoliohubs.pages.dev/dr${cleanSlug}`}
+                href={publicDoctorUrl(cleanSlug)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 text-primary font-semibold text-xs hover:bg-primary/20 transition"
