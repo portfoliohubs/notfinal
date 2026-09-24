@@ -537,6 +537,8 @@ changed until the trial release gates below are completed and signed off.
 - [x] Chatbot launcher is no longer hidden while Firebase authentication is
   loading or absent. Authentication remains available for personalization and
   protected actions.
+- [x] Chatbot is eagerly imported at the application shell so the launcher is
+  not delayed by a lazy component chunk.
 - [x] Added scoped dark-mode contrast overrides for AdminDashboard cards,
   surfaces, borders, text, controls, and muted states.
 - [ ] Complete visual browser verification of every AdminDashboard tab in both
@@ -693,6 +695,7 @@ data-store decision is documented.
 | Date | Commit / run | Change | Validation | Next action |
 |---|---|---|---|---|
 | 2026-09-24 | `0a07db5`, Actions `35996131229` | Fixed Linux GitHub Actions build and deployed trial | Lint/build/Pages deployment passed; home URL renders | Execute Stages 1–3, then complete the `Micky plan.docx` audit |
+| 2026-09-24 | `f976486`, `6163c38` | Implemented requested homepage copy/links, anonymous chatbot launcher, eager chatbot loading, and scoped admin dark-mode tokens | Local lint/build passed; Pages deployment queued | Verify deployed UI, then continue the original-plan visual and QA stages |
 
 ## Original document audit summary — 2026-09-24
 
