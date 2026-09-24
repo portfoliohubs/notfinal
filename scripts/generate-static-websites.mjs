@@ -8,7 +8,7 @@ const sourcePath = path.resolve(
 );
 const outputRoot = path.resolve('dist');
 const publicRoot = path.resolve('public');
-const baseUrl = (process.env.BASE_URL || 'https://portfoliohubs.github.io/updateversion5').replace(/\/$/, '');
+const baseUrl = process.env.BASE_URL || 'https://portfoliohubs.github.io';
 
 const source = JSON.parse(await readFile(sourcePath, 'utf8'));
 if (!Array.isArray(source)) {
