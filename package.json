@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build && npm.cmd run generate:websites",
+    "build": "vite build && npm run generate:websites",
     "preview": "vite preview",
     "generate:websites": "node scripts/generate-static-websites.mjs",
     "cloudflare:dev": "wrangler dev worker/index.ts",
