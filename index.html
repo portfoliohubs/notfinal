@@ -114,42 +114,10 @@
         page_path: window.location.pathname + window.location.search
       });
     </script>
-    <!-- Dynamic Chunk Recovery & Cache Busting Guard -->
-    <script>
-      (function() {
-        var chunkFailed = false;
-        window.addEventListener('error', function(e) {
-          var target = e.target;
-          var isScript = target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK');
-          var isChunkErr = e.message && (
-            e.message.indexOf('Loading chunk') !== -1 ||
-            e.message.indexOf('Failed to fetch dynamically imported module') !== -1 ||
-            e.message.indexOf('import call failed') !== -1
-          );
-          if ((isScript || isChunkErr) && !chunkFailed) {
-            chunkFailed = true;
-            console.warn('[PortfolioHubs] Detected stale asset or chunk error, clearing caches & refreshing...');
-            if ('caches' in window) {
-              caches.keys().then(function(keys) {
-                keys.forEach(function(k) { caches.delete(k); });
-              });
-            }
-            if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.getRegistrations().then(function(regs) {
-                regs.forEach(function(r) { r.unregister(); });
-              });
-            }
-            setTimeout(function() {
-              window.location.reload(true);
-            }, 300);
-          }
-        }, true);
-      })();
-    </script>
   </head>
-  <body class="bg-[#0b1329] text-white">
+  <body class="bg-background text-foreground">
     <div id="root">
-      <!-- Lightweight pre-mount splash screen to eliminate white flash before React hydrates -->
+      <!-- Lightweight pre-mount splash screen -->
       <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0b1329;color:#ffffff;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;padding:20px;">
         <div style="width:64px;height:64px;border-radius:18px;background:rgba(14,116,144,0.15);border:1px solid rgba(14,116,144,0.3);display:flex;align-items:center;justify-content:center;margin-bottom:20px;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
           <img src="/logo.png" alt="PortfolioHubs" style="width:42px;height:42px;object-fit:contain;" onerror="this.style.display='none'" />
@@ -166,23 +134,9 @@
     <script>
       if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
         window.addEventListener('load', function() {
-          navigator.serviceWorker.register('%BASE_URL%sw.js').then(
-            function(registration) {
-              registration.update();
-              console.log('ServiceWorker registered with scope:', registration.scope);
-            },
-            function(error) {
-              console.log('ServiceWorker registration failed:', error);
-            }
-          );
-        });
-
-        var refreshing = false;
-        navigator.serviceWorker.addEventListener('controllerchange', function() {
-          if (!refreshing) {
-            refreshing = true;
-            window.location.reload();
-          }
+          navigator.serviceWorker.register('%BASE_URL%sw.js').catch(function(err) {
+            console.log('SW registration notice:', err);
+          });
         });
       }
     </script>
