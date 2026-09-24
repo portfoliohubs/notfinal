@@ -1,10 +1,9 @@
 import { useEffect, useState, useMemo } from 'react';
 import { doc, getDoc, collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { Link, useRoute } from 'wouter';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { cloudflareApi } from '../lib/cloudflareApiClient';
 import { getCleanDoctorSlug } from '../lib/publicSiteUrl';
-import CONFIG from '../config';
 import type { PortfolioData } from '../types';
 
 interface PublicWebsiteData extends Partial<PortfolioData> {
@@ -33,7 +32,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // Interactive UI State matching template
+  // Interactive UI State matching HTML template
   const [currentLang, setCurrentLang] = useState<'en' | 'ar'>('ar');
   const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>('light');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -51,22 +50,27 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           throw new Error('لم يتم تحديد عنوان الموقع المطلوب.');
         }
 
-        // Direct check for Dr. Michael Nabil founder site
-        if (cleanSlug === 'drmichaelnabil' || cleanSlug === 'michaelnabil' || cleanSlug === 'michael') {
-          window.location.replace('https://portfoliohubs.github.io/drmichaelnabil');
-          return;
+        // 1. Check local session draft first if doctor is testing in browser
+        if (typeof window !== 'undefined') {
+          const draftRaw = sessionStorage.getItem('portfolio_draft');
+          if (draftRaw) {
+            try {
+              const draftData = JSON.parse(draftRaw);
+              const draftSlug = getCleanDoctorSlug(draftData.slug || draftData.username || draftData.fullName || '');
+              if (draftSlug === cleanSlug || cleanSlug === 'preview' || cleanSlug === 'draft') {
+                if (active) {
+                  setWebsite(draftData);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch (e) {
+              console.warn('[PublicWebsite] Draft parse error:', e);
+            }
+          }
         }
 
-        // Check if matches a live example
-        const matchingExample = (CONFIG.portfolioIntro.liveExamples ?? []).find(
-          ex => ex.link.toLowerCase().replace(/^\/+|\/+$/g, '') === cleanSlug
-        );
-        if (matchingExample) {
-          window.location.replace(`https://portfoliohubs.github.io/${matchingExample.link}`);
-          return;
-        }
-
-        // 1. Try Cloudflare Worker API endpoint first
+        // 2. Try Cloudflare Worker API endpoint
         try {
           const response = await cloudflareApi.getPublishedWebsite(cleanSlug);
           if (active && response?.data) {
@@ -75,10 +79,10 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
             return;
           }
         } catch (apiError) {
-          console.warn('[PublicWebsite] Cloudflare API notice:', apiError);
+          console.warn('[PublicWebsite] Cloudflare API note:', apiError);
         }
 
-        // 2. Check slugs collection in Firestore
+        // 3. Check slugs collection in Firestore
         let uid = '';
         let slugSnap = await getDoc(doc(db, 'slugs', cleanSlug));
         if (!slugSnap.exists()) {
@@ -93,7 +97,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           uid = cleanSlug;
         }
 
-        // 3. Load portfolio by UID
+        // 4. Load portfolio by UID from published_portfolios, portfolios, or users
         if (uid) {
           let websiteSnapshot = await getDoc(doc(db, 'published_portfolios', uid));
           if (!websiteSnapshot.exists()) {
@@ -106,16 +110,15 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           if (websiteSnapshot.exists() && active) {
             const docData = websiteSnapshot.data() as PublicWebsiteData;
             
-            // If main doc has no cases or empty, check subcollection
-            if (!docData.cases || docData.cases.length === 0) {
-              try {
-                const subCasesSnap = await getDocs(collection(db, 'portfolios', uid, 'cases'));
-                if (!subCasesSnap.empty) {
-                  docData.cases = subCasesSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any;
-                }
-              } catch (scErr) {
-                console.warn('[PublicWebsite] Subcases note:', scErr);
+            // Check cases subcollection
+            try {
+              const subCasesSnap = await getDocs(collection(db, 'portfolios', uid, 'cases'));
+              if (!subCasesSnap.empty) {
+                const subCases = subCasesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                docData.cases = [...(docData.cases || []), ...subCases] as any;
               }
+            } catch (scErr) {
+              console.warn('[PublicWebsite] Subcases lookup note:', scErr);
             }
 
             setWebsite(docData);
@@ -124,7 +127,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           }
         }
 
-        // 4. Fallback search by slug field in portfolios collection
+        // 5. Query portfolios collection by slug, username, or email
         try {
           const q = query(
             collection(db, 'portfolios'),
@@ -137,26 +140,57 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
             const docData = docSnap.data() as PublicWebsiteData;
             const docId = docSnap.id;
 
-            if (!docData.cases || docData.cases.length === 0) {
-              try {
-                const subCasesSnap = await getDocs(collection(db, 'portfolios', docId, 'cases'));
-                if (!subCasesSnap.empty) {
-                  docData.cases = subCasesSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any;
-                }
-              } catch {}
-            }
+            try {
+              const subCasesSnap = await getDocs(collection(db, 'portfolios', docId, 'cases'));
+              if (!subCasesSnap.empty) {
+                const subCases = subCasesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                docData.cases = [...(docData.cases || []), ...subCases] as any;
+              }
+            } catch {}
 
             setWebsite(docData);
             setLoading(false);
             return;
           }
         } catch (queryErr) {
-          console.warn('[PublicWebsite] Query fallback notice:', queryErr);
+          console.warn('[PublicWebsite] Query fallback note:', queryErr);
+        }
+
+        // 6. Query users collection by slug or username
+        try {
+          const qUsers = query(
+            collection(db, 'users'),
+            where('slug', 'in', [cleanSlug, `dr-${cleanSlug}`, `dr${cleanSlug}`]),
+            limit(1)
+          );
+          const qUsersSnap = await getDocs(qUsers);
+          if (!qUsersSnap.empty && active) {
+            const docData = qUsersSnap.docs[0].data() as PublicWebsiteData;
+            setWebsite(docData);
+            setLoading(false);
+            return;
+          }
+        } catch {}
+
+        // 7. Check if current authenticated doctor matches
+        if (auth.currentUser && active) {
+          try {
+            const myUserSnap = await getDoc(doc(db, 'portfolios', auth.currentUser.uid));
+            if (myUserSnap.exists()) {
+              const myData = myUserSnap.data() as PublicWebsiteData;
+              const mySlug = getCleanDoctorSlug(myData.slug || myData.username || '');
+              if (mySlug === cleanSlug || auth.currentUser.uid === cleanSlug) {
+                setWebsite(myData);
+                setLoading(false);
+                return;
+              }
+            }
+          } catch {}
         }
 
         throw new Error('هذا الموقع غير متاح حالياً أو لم يتم اعتماده ونشره بعد.');
       } catch (loadError) {
-        console.warn('[PublicWebsite] Note:', loadError instanceof Error ? loadError.message : 'Unable to load website');
+        console.warn('[PublicWebsite] Load Error:', loadError instanceof Error ? loadError.message : 'Unable to load website');
         if (active) {
           setError(loadError instanceof Error ? loadError.message : 'تعذر تحميل هذا الموقع.');
           setLoading(false);
@@ -199,7 +233,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
   const nameAr = website?.fullNameAr || website?.nameAr || (website?.ar as any)?.hero?.name || website?.fullName || 'د. طبيب أسنان';
   const name = isAr ? nameAr : nameEn;
 
-  const taglineEn = website?.title || website?.specialization || website?.tagline || (website?.hero as any)?.tagline || 'Dental Surgeon & Practitioner';
+  const taglineEn = website?.title || website?.specialization || website?.tagline || (website?.hero as any)?.tagline || '';
   const taglineAr = website?.titleAr || website?.specializationAr || website?.taglineAr || (website?.ar as any)?.hero?.tagline || taglineEn;
   const tagline = isAr ? taglineAr : taglineEn;
 
@@ -260,53 +294,39 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
   const master = website?.masterDegree || (website?.education as any)?.master;
   const phd = website?.phdDegree || (website?.education as any)?.phd;
 
-  // Cases
-  const rawCases: any[] = website?.cases || (website as any)?.clinical_cases || [];
-  const normalizedCases = useMemo(() => {
-    const list: Array<{
-      id: string;
-      title: string;
-      titleAr: string;
-      category: string;
-      categoryAr: string;
-      description: string;
-      descriptionAr: string;
-      photo: string;
-    }> = [];
+  // -------------------------------------------------------------
+  // CASES GROUPING & COMPREHENSIVE EXTRACTION
+  // -------------------------------------------------------------
+  const groupedCases = useMemo(() => {
+    const raw: any[] = website?.cases || (website as any)?.clinical_cases || (website as any)?.clinicalCases || [];
+    if (!raw || raw.length === 0) return [];
 
-    rawCases.forEach((item, idx) => {
-      // If category container shape (Hugo format)
-      if (item.cases && Array.isArray(item.cases)) {
-        item.cases.forEach((sub: any, sIdx: number) => {
-          list.push({
-            id: sub.id || `case_${idx}_${sIdx}`,
-            title: sub.alt || sub.title || item.category || 'Clinical Case',
-            titleAr: sub.alt_ar || sub.titleAr || item.category_ar || 'حالة سريرية',
-            category: item.category || 'Dentistry',
-            categoryAr: item.category_ar || item.category || 'طب الأسنان',
-            description: sub.description || '',
-            descriptionAr: sub.description_ar || sub.description || '',
-            photo: sub.photo || sub.preview || ''
-          });
-        });
-      } else {
-        // Flat case object
-        const photoUrl = item.afterPhoto?.url || item.afterPhoto?.previewUrl || item.photo || item.preview || item.photos?.[0]?.url || item.photos?.[0]?.previewUrl || item.beforePhoto?.url || '';
-        list.push({
-          id: item.id || `case_${idx}`,
-          title: item.title || item.alt || item.category || 'Clinical Case',
-          titleAr: item.titleAr || item.alt_ar || item.categoryAr || item.category || 'حالة سريرية',
-          category: item.category || 'General',
-          categoryAr: item.categoryAr || item.category || 'علاج أسنان',
-          description: item.description || '',
-          descriptionAr: item.descriptionAr || item.description || '',
-          photo: photoUrl
-        });
+    // If already in Hugo category format
+    if (raw[0] && Array.isArray(raw[0].cases)) {
+      return raw.map((cat: any) => ({
+        category: cat.category || 'General Dentistry',
+        categoryAr: cat.category_ar || cat.categoryAr || cat.category || 'طب الأسنان العام',
+        items: cat.cases || []
+      })).filter((g: any) => g.items && g.items.length > 0);
+    }
+
+    // If flat array of cases
+    const map: Record<string, { category: string; categoryAr: string; items: any[] }> = {};
+    raw.forEach((c: any, idx: number) => {
+      const cat = c.category || c.treatmentType || 'Clinical Dentistry';
+      const catAr = c.categoryAr || c.category_ar || (c.category ? c.category : 'طب الأسنان السريري');
+      if (!map[cat]) {
+        map[cat] = {
+          category: cat,
+          categoryAr: catAr,
+          items: []
+        };
       }
+      map[cat].items.push(c);
     });
 
-    return list;
-  }, [rawCases]);
+    return Object.values(map);
+  }, [website]);
 
   // Contact
   const address = isAr 
@@ -330,7 +350,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
     const cleanSlug = slug.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
     document.title = isAr ? `${nameAr} | ${nameEn} - PortfolioHubs` : `${nameEn} | ${nameAr} - PortfolioHubs`;
     
-    const description = `${nameAr} (${nameEn}) - ${tagline}. الملف المهني والحالات السريرية وتفاصيل العيادة والتواصل.`;
+    const description = `${nameAr} (${nameEn}) - ${tagline || 'Medical Portfolio'}. الملف المهني والحالات السريرية وتفاصيل العيادة والتواصل.`;
     let descriptionTag = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (!descriptionTag) {
       descriptionTag = document.createElement('meta');
@@ -383,7 +403,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
         },
         content: [
           { text: nameEn.toUpperCase(), fontSize: 28, bold: true, color: '#ffffff', alignment: 'center', margin: [0, 40, 0, 8] },
-          { text: taglineEn, fontSize: 14, color: '#3b82f6', bold: true, alignment: 'center', margin: [0, 0, 0, 6] },
+          taglineEn ? { text: taglineEn, fontSize: 14, color: '#3b82f6', bold: true, alignment: 'center', margin: [0, 0, 0, 6] } : null,
           graduationEn ? { text: graduationEn, fontSize: 12, color: '#9ca3af', fontStyle: 'italic', alignment: 'center', margin: [0, 0, 0, 15] } : null,
           {
             canvas: [{ type: 'line', x1: 200, y1: 0, x2: 315, y2: 0, lineWidth: 2, lineColor: '#3b82f6' }],
@@ -614,6 +634,8 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
           font-weight: 700; color: var(--primary-color); font-size: 1.2rem; display: block; margin-bottom: 0.5rem;
         }
         .doctor-portfolio-page .cases-container { display: flex; flex-direction: column; gap: 4rem; }
+        .doctor-portfolio-page .case-category { padding: 2rem; background: var(--bg-secondary); border-radius: 1rem; }
+        .doctor-portfolio-page .case-category-title { font-size: 2rem; margin-bottom: 2rem; text-align: center; color: var(--primary-color); }
         .doctor-portfolio-page .cases-grid {
           display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 2rem; justify-items: center;
         }
@@ -769,7 +791,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
               <li><a href="#home" onClick={() => setMobileNavOpen(false)}>{isAr ? 'الملف الشخصي' : 'Profile'}</a></li>
               {hasSkills && <li><a href="#skills" onClick={() => setMobileNavOpen(false)}>{isAr ? 'المهارات' : 'Skills'}</a></li>}
               {(university || timeline.length > 0) && <li><a href="#education" onClick={() => setMobileNavOpen(false)}>{isAr ? 'التعليم' : 'Education'}</a></li>}
-              {normalizedCases.length > 0 && <li><a href="#cases" onClick={() => setMobileNavOpen(false)}>{isAr ? 'الحالات السريرية' : 'Clinical Cases'}</a></li>}
+              {groupedCases.length > 0 && <li><a href="#cases" onClick={() => setMobileNavOpen(false)}>{isAr ? 'الحالات السريرية' : 'Clinical Cases'}</a></li>}
               <li><a href="#contact" onClick={() => setMobileNavOpen(false)}>{isAr ? 'التواصل' : 'Contact'}</a></li>
             </ul>
           </div>
@@ -947,7 +969,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
         )}
 
         {/* Clinical Cases Section */}
-        {normalizedCases.length > 0 && (
+        {groupedCases.length > 0 && (
           <section id="cases" className="section cases-section">
             <div className="section-header">
               <div className="icon-circle">
@@ -958,35 +980,55 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
             </div>
             
             <div className="cases-container" id="casesContainer">
-              <div className="cases-grid">
-                {normalizedCases.map((c) => {
-                  const caseTitle = isAr ? (c.titleAr || c.title) : (c.title || c.titleAr);
-                  const caseDesc = isAr ? (c.descriptionAr || c.description) : (c.description || c.descriptionAr);
-                  const caseCategory = isAr ? (c.categoryAr || c.category) : (c.category || c.categoryAr);
+              {groupedCases.map((group, gIdx) => (
+                <div className="case-category" key={group.category || gIdx}>
+                  <h3 className="case-category-title">
+                    {isAr ? (group.categoryAr || group.category) : (group.category || group.categoryAr)}
+                  </h3>
+                  <div className="cases-grid">
+                    {group.items.map((c: any, idx: number) => {
+                      const caseTitle = isAr ? (c.titleAr || c.title || c.altAr || c.alt || c.descriptionAr || c.description) : (c.title || c.titleAr || c.alt || c.altAr || c.description || c.descriptionAr);
+                      const caseDesc = isAr ? (c.descriptionAr || c.description) : (c.description || c.descriptionAr);
+                      const photo = c.photo || c.preview || c.afterPhoto?.url || c.afterPhoto?.previewUrl || (typeof c.afterPhoto === 'string' ? c.afterPhoto : '') || c.beforePhoto?.url || (typeof c.beforePhoto === 'string' ? c.beforePhoto : '') || (c.photos && c.photos[0]?.url) || (c.photos && c.photos[0]?.previewUrl) || '';
 
-                  return (
-                    <div className="case-card" key={c.id}>
-                      {c.photo && (
-                        <div className="case-image-wrapper">
-                          <img 
-                            src={c.photo} 
-                            alt={caseTitle || 'Clinical case'} 
-                            className="case-image" 
-                            loading="lazy"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                          />
+                      return (
+                        <div className="case-card" key={c.id || idx}>
+                          <div className="case-image-wrapper single">
+                            {photo ? (
+                              <img 
+                                src={photo} 
+                                alt={caseTitle || 'Clinical case'} 
+                                className="case-image" 
+                                loading="lazy"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-secondary)', color: 'var(--primary-color)', fontSize: '2.5rem' }}>
+                                <i className="fas fa-tooth"></i>
+                              </div>
+                            )}
+                          </div>
+                          <div className="case-description">
+                            {caseTitle && (
+                              <h4 style={{ fontWeight: 700, marginBottom: 8, color: 'var(--primary-color)', fontSize: '1.1rem' }}>
+                                {caseTitle}
+                              </h4>
+                            )}
+                            {caseDesc && (caseDesc !== caseTitle) && (
+                              <p style={{ margin: 0, lineHeight: 1.5 }}>
+                                {caseDesc}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      )}
-                      <div className="case-description">
-                        <h4 style={{ fontWeight: 700, marginBottom: 8, color: 'var(--primary-color)' }}>
-                          {caseCategory || (isAr ? 'حالة سريرية' : 'Treatment Case')}
-                        </h4>
-                        <p>{caseDesc || caseTitle || (isAr ? 'توثيق سريري متقدم' : 'Advanced clinical documentation')}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         )}
@@ -1131,7 +1173,7 @@ export default function PublicWebsite({ slug: propSlug, params }: PublicWebsiteP
                 <span>{isAr ? 'التعليم' : 'Education'}</span>
               </a>
             )}
-            {normalizedCases.length > 0 && (
+            {groupedCases.length > 0 && (
               <a href="#cases" className={`nav-item ${activeSection === 'cases' ? 'active' : ''}`}>
                 <i className="fas fa-tooth"></i>
                 <span>{isAr ? 'الحالات' : 'Cases'}</span>
