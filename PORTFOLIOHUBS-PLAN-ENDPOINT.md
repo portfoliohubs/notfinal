@@ -549,6 +549,15 @@ generated 0 static doctor pages because no publishable export records exist in
 the trial checkout. The build warnings are the pre-existing Vite native-loader
 and large-chunk warnings, not failures.
 
+### Rejected homepage redesign — 2026-09-24
+
+- [x] Reverted commit `36221e7` after review because the implementation did
+  not faithfully match the supplied Refero reference.
+- [ ] Do not treat that visual attempt as completed work.
+- [ ] Agree on the exact hero composition, visual asset direction, typography,
+  navigation density, spacing, and responsive behavior before implementing a
+  new homepage redesign.
+
 ## New requested product changes
 
 These are requirements for the next implementation cycle, not yet marked
