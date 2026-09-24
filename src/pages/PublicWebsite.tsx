@@ -52,25 +52,47 @@ export default function PublicWebsite() {
         // Prefer the Worker public endpoint, while retaining Firestore as a
         // backwards-compatible fallback for existing published websites.
         try {
-          const response = await cloudflareApi.getPublishedWebsite(slug);
-          if (active) setWebsite(response.data);
-          return;
+          const response = await cloudflareApi.getPublishedWebsite(cleanSlug);
+          if (active && response?.data) {
+            setWebsite(response.data);
+            return;
+          }
         } catch (apiError) {
           console.warn('[PublicWebsite] Cloudflare API unavailable; using Firebase fallback.', apiError);
         }
-        const slugSnapshot = await getDoc(doc(db, 'slugs', slug));
-        if (!slugSnapshot.exists()) {
-          throw new Error('This website could not be found.');
+
+        // Check slugs collection
+        let uid = '';
+        let slugSnap = await getDoc(doc(db, 'slugs', cleanSlug));
+        if (!slugSnap.exists()) {
+          slugSnap = await getDoc(doc(db, 'slugs', `dr-${cleanSlug}`));
         }
-        const uid = slugSnapshot.data().uid;
-        if (typeof uid !== 'string' || !uid) {
-          throw new Error('This website has an invalid owner record.');
+        if (!slugSnap.exists() && cleanSlug.startsWith('dr-')) {
+          slugSnap = await getDoc(doc(db, 'slugs', cleanSlug.replace(/^dr-/, '')));
         }
-        const websiteSnapshot = await getDoc(doc(db, 'published_portfolios', uid));
-        if (!websiteSnapshot.exists()) {
-          throw new Error('This website is not published yet.');
+        if (slugSnap.exists()) {
+          uid = slugSnap.data().uid || '';
+        } else {
+          // Check if cleanSlug is directly a UID
+          uid = cleanSlug;
         }
-        if (active) setWebsite(websiteSnapshot.data() as PublicWebsiteData);
+
+        if (uid) {
+          let websiteSnapshot = await getDoc(doc(db, 'published_portfolios', uid));
+          if (!websiteSnapshot.exists()) {
+            websiteSnapshot = await getDoc(doc(db, 'portfolios', uid));
+          }
+          if (!websiteSnapshot.exists()) {
+            websiteSnapshot = await getDoc(doc(db, 'users', uid));
+          }
+
+          if (websiteSnapshot.exists() && active) {
+            setWebsite(websiteSnapshot.data() as PublicWebsiteData);
+            return;
+          }
+        }
+
+        throw new Error('This website could not be found or is not published yet.');
       } catch (loadError) {
         console.warn('[PublicWebsite] Note:', loadError instanceof Error ? loadError.message : 'Unable to load website');
         if (active) {
@@ -87,9 +109,10 @@ export default function PublicWebsite() {
 
   useEffect(() => {
     if (!website) return;
-    const displayName = website.fullName || 'Dental professional';
+    const cleanSlug = slug.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
+    const displayName = website.fullNameAr || website.fullName || 'Dental professional';
     document.title = `${displayName} | PortfolioHubs`;
-    const description = website.title || 'Dental professional website powered by PortfolioHubs';
+    const description = website.titleAr || website.title || 'Dental professional website powered by PortfolioHubs';
     let descriptionTag = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     if (!descriptionTag) {
       descriptionTag = document.createElement('meta');
@@ -103,7 +126,7 @@ export default function PublicWebsite() {
       canonical.rel = 'canonical';
       document.head.appendChild(canonical);
     }
-    canonical.href = `https://portfoliohubs.pages.dev/dr${slug}`;
+    canonical.href = `https://portfoliohubs.github.io/dr/${cleanSlug}`;
     const existingSchema = document.querySelector<HTMLScriptElement>('script[data-public-website-schema]');
     const schema = existingSchema || document.createElement('script');
     schema.type = 'application/ld+json';

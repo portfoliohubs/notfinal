@@ -70,6 +70,7 @@ import { cloudflareApi } from '../lib/cloudflareApiClient';
 
 interface PortfolioRecord {
   id: string;
+  uid?: string;
   slug?: string;
   username?: string;
   fullName: string;
@@ -87,6 +88,7 @@ interface PortfolioRecord {
   active?: boolean;
   hasUnreviewedChanges?: boolean;
   adminNotes?: string;
+  rejectionReason?: string | null;
   profilePhoto?: string;
   profilePhotoPath?: string;
   profilePreview?: string;
@@ -109,6 +111,7 @@ interface PortfolioRecord {
   bioAr?: string;
   createdAt?: string;
   publishedAt?: string;
+  updatedAt?: string;
 }
 
 interface GlobalSettings {
@@ -164,7 +167,7 @@ export default function AdminDashboard() {
     upgradeWhatsAppNumber: '201271476215',
     maintenanceMode: false,
     autoSeoArticlesEnabled: true,
-    baseUrl: 'https://portfoliohubs.pages.dev'
+    baseUrl: typeof window !== 'undefined' ? window.location.origin : 'https://portfoliohubs.github.io'
   });
   const [savingSettings, setSavingSettings] = useState(false);
   const [uploadingCvPoster, setUploadingCvPoster] = useState(false);
@@ -548,11 +551,23 @@ export default function AdminDashboard() {
     };
   }, [doctors]);
 
+  const getDoctorPublicUrl = (doctor: PortfolioRecord) => {
+    const raw = (doctor.slug || doctor.username || doctor.fullName || doctor.id || 'doctor')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/^dr-?/, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'doctor';
+    return `/dr/${raw}`;
+  };
+
   // 5. Action: Toggle Suspend / Activate Account
   const handleToggleAccountActive = async (doctor: PortfolioRecord) => {
     const newActiveState = !(doctor.active !== false);
     const nowIso = new Date().toISOString();
     try {
+      const mergedDoctor = { ...doctor, active: newActiveState, updatedAt: nowIso };
       await updateDoc(doc(db, 'users', doctor.id), {
         active: newActiveState,
         updatedAt: nowIso
@@ -566,10 +581,8 @@ export default function AdminDashboard() {
         console.warn('portfolios updateDoc warning:', pErr);
       }
       try {
-        await cloudflareApi.saveProfile({
-          active: newActiveState,
-          updatedAt: nowIso
-        }, doctor.id);
+        await cloudflareApi.saveProfile(mergedDoctor, doctor.id);
+        await cloudflareApi.savePortfolio(mergedDoctor, doctor.id);
       } catch (cfErr) {
         console.warn('cloudflareApi saveProfile warning:', cfErr);
       }
@@ -591,8 +604,14 @@ export default function AdminDashboard() {
 
     try {
       const nowIso = new Date().toISOString();
-      const baseSlug = doctor.slug || doctor.username || (doctor.fullName ? doctor.fullName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : doctor.id);
-      const derivedSlug = baseSlug || doctor.id;
+      const rawBase = (doctor.slug || doctor.username || doctor.fullName || doctor.id || 'doctor')
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/^dr-?/, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'doctor';
+      const derivedSlug = rawBase;
 
       // Reserve the public slug atomically before publishing any records.
       // This prevents two administrators from publishing different doctors at
@@ -610,9 +629,11 @@ export default function AdminDashboard() {
         }, { merge: true });
       });
 
-      // 1. Update Firestore User Document
-      await setDoc(doc(db, 'users', doctor.id), {
-        status: 'published',
+      // Construct the FULL merged doctor record so NO data is lost on approval
+      const fullApprovedDoctor: PortfolioRecord = {
+        ...doctor,
+        uid: doctor.id,
+        status: 'published' as const,
         active: true,
         slug: derivedSlug,
         username: derivedSlug,
@@ -621,33 +642,24 @@ export default function AdminDashboard() {
         adminNotes: '',
         rejectionReason: null,
         updatedAt: nowIso
-      }, { merge: true });
+      };
+
+      // 1. Update Firestore User Document with FULL merged record
+      await setDoc(doc(db, 'users', doctor.id), fullApprovedDoctor, { merge: true });
 
       // Mirror to portfolios collection
       try {
-        await setDoc(doc(db, 'portfolios', doctor.id), {
-          status: 'published',
-          active: true,
-          slug: derivedSlug,
-          username: derivedSlug,
-          hasUnreviewedChanges: false,
-          publishedAt: nowIso,
-          updatedAt: nowIso
-        }, { merge: true });
+        await setDoc(doc(db, 'portfolios', doctor.id), fullApprovedDoctor, { merge: true });
       } catch (pErr) {
         console.warn('Mirror portfolios update error:', pErr);
       }
 
-      await setDoc(doc(db, 'published_portfolios', doctor.id), {
-        ...doctor,
-        uid: doctor.id,
-        status: 'published',
-        active: true,
-        slug: derivedSlug,
-        username: derivedSlug,
-        publishedAt: nowIso,
-        updatedAt: nowIso,
-      }, { merge: true });
+      // Mirror to published_portfolios collection
+      try {
+        await setDoc(doc(db, 'published_portfolios', doctor.id), fullApprovedDoctor, { merge: true });
+      } catch (pErr) {
+        console.warn('Mirror published_portfolios error:', pErr);
+      }
 
       // 2. Update Publication Document
       await setDoc(doc(db, 'publications', doctor.id), {
@@ -660,34 +672,21 @@ export default function AdminDashboard() {
         updatedAt: nowIso
       }, { merge: true });
 
-      // Mirror approval to Cloudflare D1 API
+      // Mirror approval to Cloudflare D1 API with full merged record
       try {
-        const approvePayload = {
-          status: 'published' as const,
-          active: true,
-          slug: derivedSlug,
-          username: derivedSlug,
-          hasUnreviewedChanges: false,
-          publishedAt: nowIso,
-          adminNotes: '',
-          rejectionReason: null,
-          updatedAt: nowIso
-        };
-        await cloudflareApi.saveProfile(approvePayload, doctor.id);
-        await cloudflareApi.savePortfolio(approvePayload, doctor.id);
+        await cloudflareApi.saveProfile(fullApprovedDoctor, doctor.id);
+        await cloudflareApi.savePortfolio(fullApprovedDoctor, doctor.id);
+        try {
+          await cloudflareApi.publish(derivedSlug);
+        } catch (pubErr) {
+          console.warn('[AdminDashboard] Cloudflare API publish warning:', pubErr);
+        }
       } catch (cfErr) {
         console.warn('[AdminDashboard] Cloudflare mirror approve warning:', cfErr);
       }
 
-      // 3. Register Slug in Slugs Registry
-      // Update Local State
-      setDoctors(prev => prev.map(d => d.id === doctor.id ? {
-        ...d,
-        status: 'published',
-        active: true,
-        hasUnreviewedChanges: false,
-        publishedAt: nowIso
-      } : d));
+      // Update Local State with FULL merged record
+      setDoctors(prev => prev.map(d => d.id === doctor.id ? fullApprovedDoctor : d));
 
       // 4. Trigger Real Static HTML Generation on Server
       let serverGenSuccess = false;
@@ -696,7 +695,7 @@ export default function AdminDashboard() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            doctor: { ...doctor, slug: derivedSlug, username: derivedSlug },
+            doctor: fullApprovedDoctor,
             cases: doctor.cases || []
           })
         });
@@ -727,7 +726,7 @@ export default function AdminDashboard() {
       } else if (!ghPat.trim()) {
         setStatusMessage({
           type: 'success',
-          text: `✅ تم اعتماد بورتفوليو د. ${doctor.fullName || doctor.fullNameAr} بنجاح في قاعدة البيانات وجاري حفظ الصفحات الثابتة.`
+          text: `✅ تم اعتماد بورتفوليو د. ${doctor.fullName || doctor.fullNameAr} بنجاح في قاعدة البيانات وجاري حفظ الصفحات الثابتة: /dr/${derivedSlug}`
         });
       } else if (!ghResult.ok) {
         setStatusMessage({
@@ -763,6 +762,16 @@ export default function AdminDashboard() {
 
     try {
       const nowIso = new Date().toISOString();
+      const existingDoc = doctors.find(d => d.id === rejectDoctorId);
+      const mergedReject = {
+        ...(existingDoc || {}),
+        status: 'rejected' as const,
+        hasUnreviewedChanges: false,
+        adminNotes: rejectNotes,
+        rejectionReason: rejectNotes,
+        updatedAt: nowIso
+      };
+
       await updateDoc(doc(db, 'users', rejectDoctorId), {
         status: 'rejected',
         hasUnreviewedChanges: false,
@@ -779,24 +788,14 @@ export default function AdminDashboard() {
       }, { merge: true });
 
       try {
-        await setDoc(doc(db, 'portfolios', rejectDoctorId), {
-          status: 'rejected',
-          hasUnreviewedChanges: false,
-          adminNotes: rejectNotes,
-          rejectionReason: rejectNotes,
-          updatedAt: nowIso
-        }, { merge: true });
+        await setDoc(doc(db, 'portfolios', rejectDoctorId), mergedReject, { merge: true });
       } catch (pErr) {
         console.warn('portfolios rejectDoc warning:', pErr);
       }
 
       try {
-        await cloudflareApi.saveProfile({
-          status: 'rejected',
-          hasUnreviewedChanges: false,
-          adminNotes: rejectNotes,
-          updatedAt: nowIso
-        }, rejectDoctorId);
+        await cloudflareApi.saveProfile(mergedReject, rejectDoctorId);
+        await cloudflareApi.savePortfolio(mergedReject, rejectDoctorId);
       } catch (cfErr) {
         console.warn('cloudflareApi rejectDoctor warning:', cfErr);
       }
@@ -951,6 +950,7 @@ export default function AdminDashboard() {
       const nowIso = new Date().toISOString();
 
       const editPayload = {
+        ...editDoctorForm,
         caseLimit: Number(caseLimit) || 3,
         title: title || '',
         titleAr: titleAr || '',
@@ -983,7 +983,7 @@ export default function AdminDashboard() {
         console.warn('cloudflareApi saveProfile warning:', cfErr);
       }
 
-      setDoctors(prev => prev.map(d => d.id === id ? { ...d, ...editDoctorForm, caseLimit: Number(caseLimit) || 3 } : d));
+      setDoctors(prev => prev.map(d => d.id === id ? { ...d, ...editPayload } : d));
       setStatusMessage({ type: 'success', text: `تم تحديث بيانات وحدود د. ${fullName} بنجاح.` });
       setEditDoctorForm(null);
     } catch (err: any) {
@@ -1523,7 +1523,7 @@ export default function AdminDashboard() {
 
                               {(doctor.status === 'published' || doctor.status === 'approved') && (
                                 <a
-                                  href={`${globalSettings.baseUrl}/dr${doctor.slug || doctor.username || doctor.id}`}
+                                  href={getDoctorPublicUrl(doctor)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="p-1.5 text-cyan-700 hover:bg-cyan-50 rounded-lg transition"

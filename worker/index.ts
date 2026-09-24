@@ -281,10 +281,14 @@ export default {
         }
         if (['PUT', 'PATCH'].includes(request.method)) {
           const value = await body(request); const stamp = now();
+          const existing = await db.prepare('SELECT data_json, email FROM users WHERE uid = ?').bind(uid).first<{ data_json?: string; email?: string }>();
+          const existingData = parseJson(existing?.data_json);
+          const merged = { ...existingData, ...value };
+          const userEmail = (typeof value.email === 'string' && value.email) ? value.email : (existing?.email || user.email);
           await db.prepare(`INSERT INTO users (uid, email, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(uid) DO UPDATE SET email = excluded.email, data_json = excluded.data_json, updated_at = excluded.updated_at`)
-            .bind(uid, user.email, JSON.stringify(value), stamp, stamp).run();
-          return json({ ok: true, uid, data: value }, 200, request);
+            .bind(uid, userEmail, JSON.stringify(merged), stamp, stamp).run();
+          return json({ ok: true, uid, data: merged }, 200, request);
         }
       }
       if (url.pathname === '/api/portfolio') {
@@ -294,10 +298,13 @@ export default {
         }
         if (['PUT', 'PATCH'].includes(request.method)) {
           const value = await body(request); const stamp = now();
+          const existing = await db.prepare('SELECT data_json FROM portfolios WHERE uid = ?').bind(uid).first<{ data_json?: string }>();
+          const existingData = parseJson(existing?.data_json);
+          const merged = { ...existingData, ...value };
           await db.prepare(`INSERT INTO portfolios (uid, data_json, created_at, updated_at) VALUES (?, ?, ?, ?)
             ON CONFLICT(uid) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at`)
-            .bind(uid, JSON.stringify(value), stamp, stamp).run();
-          return json({ ok: true, uid, data: value }, 200, request);
+            .bind(uid, JSON.stringify(merged), stamp, stamp).run();
+          return json({ ok: true, uid, data: merged }, 200, request);
         }
       }
       if (url.pathname === '/api/cases/reorder' && request.method === 'POST') {

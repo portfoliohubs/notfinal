@@ -194,7 +194,7 @@ export default function HotmartSidebar({
 
           {slug && !isCollapsed && (
             <a
-              href={`/${slug}/`}
+              href={`/dr/${slug.replace(/^dr-?/, '')}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between px-3 py-1.5 rounded-lg text-xs text-brand hover:bg-brand/5 transition-colors mr-2"
