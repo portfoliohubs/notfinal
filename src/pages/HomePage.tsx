@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Link } from 'wouter';
 import { FileText, Search, CheckCircle, ArrowRight, UserCheck, PlusCircle } from 'lucide-react';
 import { FaFacebook, FaInstagram, FaWhatsapp } from 'react-icons/fa';
@@ -26,24 +27,86 @@ export default function HomePage() {
     CONFIG.social.facebook || CONFIG.social.instagram || CONFIG.social.whatsapp;
 
   return (
-    <div className="site-shell flex min-h-screen flex-col transition-colors duration-200">
+    <div className="home-reference site-shell flex min-h-screen flex-col transition-colors duration-200">
       <Header />
 
-      <main className="flex-1 flex flex-col items-center justify-center px-4 py-10">
+      <main className="home-reference-main flex-1 px-4 py-5 sm:px-6 sm:py-8">
         {/* Hero */}
-        <div className="max-w-4xl mb-10 text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold mb-4 border border-primary/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            Free · No registration required
+        <section className="home-hero mx-auto max-w-7xl overflow-hidden rounded-[2rem] border border-white/10 px-6 py-12 shadow-2xl sm:px-12 sm:py-16 lg:px-16 lg:py-20">
+          <div className="home-hero-grid">
+            <div className="relative z-10 max-w-2xl">
+              <div className="home-eyebrow">
+                <span className="home-eyebrow-dot" />
+                PortfolioHubs · Dental identity studio
+              </div>
+              <h1 className="home-hero-title">
+                Build a presence
+                <br />
+                <span>worth finding.</span>
+              </h1>
+              <p className="home-hero-copy">
+                A polished website and professional CV for dentists who want to
+                be discovered, trusted, and remembered.
+              </p>
+              <p className="home-hero-arabic font-almarai" dir="rtl">
+                {CONFIG.home.subheadline}
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => {
+                    gtagEvent('portfolio_start', { source: 'homepage' });
+                    setShowPortfolioOptions(true);
+                  }}
+                  className="home-primary-cta"
+                >
+                  Create your website <ArrowRight className="h-4 w-4" />
+                </button>
+                <Link href="/cv" className="home-secondary-cta">
+                  Make a free CV <FileText className="h-4 w-4" />
+                </Link>
+              </div>
+              <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-xs text-white/55">
+                {CONFIG.home.features.slice(0, 3).map((feature) => (
+                  <span key={feature} className="flex items-center gap-1.5">
+                    <CheckCircle className="h-3.5 w-3.5 text-[#ffbf3f]" />
+                    {feature}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="home-hero-visual" aria-hidden="true">
+              <div className="home-orbit home-orbit-one" />
+              <div className="home-orbit home-orbit-two" />
+              <div className="home-constellation">
+                {Array.from({ length: 44 }, (_, index) => (
+                  <span
+                    key={index}
+                    style={{
+                      '--x': `${50 + Math.cos(index * 0.72) * (index % 2 ? 40 : 32)}%`,
+                      '--y': `${48 + Math.sin(index * 0.72) * (index % 3 ? 34 : 24)}%`,
+                      '--rotation': `${index * 27}deg`,
+                      '--hue': `${245 + index * 29}`,
+                    } as CSSProperties}
+                  />
+                ))}
+              </div>
+              <div className="home-visual-label">
+                <span>DISCOVER</span>
+                <span>YOUR SIGNAL</span>
+              </div>
+            </div>
           </div>
+        </section>
 
-          <h1 className="display-heading mb-5">
-            {CONFIG.home.headline}
-          </h1>
-
-          <p className="text-base text-muted-foreground font-almarai" dir="rtl">
-            {CONFIG.home.subheadline}
-          </p>
+        <div className="mx-auto mt-10 max-w-7xl">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="home-section-kicker">Start where you are</p>
+              <h2 className="home-section-title">One platform. Two ways to shine.</h2>
+            </div>
+            <span className="hidden text-xs text-white/40 sm:block">No registration required</span>
+          </div>
         </div>
 
         {/* Two big pathway cards */}
