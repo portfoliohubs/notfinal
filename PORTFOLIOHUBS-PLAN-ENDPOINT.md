@@ -544,21 +544,6 @@ changed until the trial release gates below are completed and signed off.
 - [ ] Complete visual browser verification of every AdminDashboard tab in both
   themes.
 
-### Homepage visual redesign — 2026-09-24
-
-- [x] Added a dark, editorial hero inspired by the supplied Refero/Dala
-  reference: oversized statement typography, restrained navigation treatment,
-  rounded hero stage, luminous constellation visual, and pill CTAs.
-- [x] Preserved the existing Website/CV actions, service links, live examples,
-  social links, theme control, and chatbot.
-- [x] Added responsive stacking for the hero visual below 800px.
-- [x] Used an original CSS-generated constellation treatment rather than
-  copying reference artwork or assets.
-- [x] Local `npm.cmd run lint` passed.
-- [x] Local `npm.cmd run build` passed.
-- [ ] Browser-verify the deployed trial at `/updateversion5/` on desktop,
-  tablet, mobile, light/dark controls, and reduced-motion.
-
 Validation completed: `npm.cmd run lint` passed; `npm.cmd run build` passed and
 generated 0 static doctor pages because no publishable export records exist in
 the trial checkout. The build warnings are the pre-existing Vite native-loader
