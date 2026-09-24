@@ -1,0 +1,3 @@
+Contact: mailto:portfoliohubs.contact@gmail.com
+Preferred-Languages: en, ar
+Canonical: https://portfoliohubs.pages.dev/.well-known/security.txt

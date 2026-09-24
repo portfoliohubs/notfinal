@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
+    
+    <!-- PWA & Mobile Web App Meta -->
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <meta name="theme-color" content="#0e7490" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="PortfolioHubs" />
+    <link rel="apple-touch-icon" href="%BASE_URL%logo.png" />
+
+    <!-- Google Search Console Verification -->
+    <meta name="google-site-verification" content="LEbtuQbQNm8XDj1I5YVHvKKg7NKoBpK0A7TY5PFBLiY" />
+
+    <!-- Browser Tab Title -->
+    <title>PortfolioHubs — بورتفوليو أطباء الأسنان وصانع السيرة الذاتية المهنية</title>
+
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="منصة متخصصة لبناء بورتفوليو أطباء الأسنان وتوليد السيرة الذاتية المهنية بصيغتي PDF و PPTX القابلة للتعديل وتوثيق حالات الأسنان والشهادات." />
+    <meta name="keywords" content="portfoliohubs, cv maker, dental cv, cv pdf maker, dental portfolio, dentist cv, free cv maker, dental student portfolio, dental cases portfolio, بورتفوليو أسنان, سيرة ذاتية طب أسنان" />
+    <meta name="robots" content="index, follow" />
+    <meta name="author" content="PortfolioHubs" />
+    <link rel="canonical" href="https://portfoliohubs.pages.dev/" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://portfoliohubs.pages.dev/#organization",
+            "name": "PortfolioHubs",
+            "url": "https://portfoliohubs.pages.dev/",
+            "description": "PortfolioHubs helps dental professionals create discoverable websites and professional CVs.",
+            "sameAs": []
+          },
+          {
+            "@type": "Person",
+            "@id": "https://portfoliohubs.pages.dev/#founder",
+            "name": "Michael",
+            "jobTitle": "Dentist, programmer, and AI expert",
+            "worksFor": { "@id": "https://portfoliohubs.pages.dev/#organization" },
+            "sameAs": []
+          }
+        ]
+      }
+    </script>
+
+    <!-- Open Graph (Facebook / LinkedIn) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="PortfolioHubs — بورتفوليو أطباء الأسنان وصانع السيرة الذاتية" />
+    <meta property="og:description" content="اصنع بورتفوليو احترافي لأطباء الأسنان وحمل سيرتك الذاتية بصيغة PDF و PPTX القابلة للتعديل." />
+    <meta property="og:image" content="/logo.png" />
+    <meta property="og:site_name" content="PortfolioHubs" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PortfolioHubs — بورتفوليو أطباء الأسنان وصانع السيرة الذاتية" />
+    <meta name="twitter:description" content="اصنع بورتفوليو احترافي لأطباء الأسنان وحمل سيرتك الذاتية بصيغة PDF و PPTX القابلة للتعديل." />
+    <meta name="twitter:image" content="/logo.png" />
+
+    <!-- Favicon & Icons -->
+    <link rel="icon" type="image/png" href="%BASE_URL%logo.png" />
+
+    <!-- Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=Inter:wght@300;400;500;600;700;800&family=Amiri:wght@400;700&display=swap" rel="stylesheet" />
+
+    <!-- Google Analytics (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-EYE00L54C5"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-EYE00L54C5', {
+        page_path: window.location.pathname + window.location.search
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('%BASE_URL%sw.js').then(
+            (registration) => {
+              console.log('ServiceWorker registered with scope:', registration.scope);
+            },
+            (error) => {
+              console.log('ServiceWorker registration failed:', error);
+            }
+          );
+        });
+      }
+    </script>
+  </body>
+</html>

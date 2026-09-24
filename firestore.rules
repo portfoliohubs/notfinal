@@ -1,0 +1,116 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // =========================================================================
+    // ADMIN VERIFICATION LOGIC
+    // =========================================================================
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.email in [
+          'cources01@gmail.com',
+          'admin@portfoliohubs.com',
+          'portfoliohubs.contact@gmail.com'
+        ] ||
+        (request.auth.token.email != null && request.auth.token.email.matches('.*@portfoliohubs[.]com$')) ||
+        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email)))
+      );
+    }
+
+    // Helper: Checks if the user is authenticated and matches the owner UID
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // =========================================================================
+    // 1. DOCTOR PROFILE DATA (/users/{uid})
+    // =========================================================================
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow write: if isOwner(uid) || isAdmin();
+
+      // Clinical cases subcollection
+      match /cases/{caseId} {
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if isOwner(uid) || isAdmin();
+      }
+
+      // Temporary pending uploads
+      match /pending_uploads/{uploadId} {
+        allow read, write: if isOwner(uid) || isAdmin();
+      }
+    }
+
+    // =========================================================================
+    // 2. BLOG ARTICLES (/blog_articles/{slug})
+    // =========================================================================
+    match /blog_articles/{slug} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // =========================================================================
+    // 3. PUBLICATION & REVIEW STATUS (/publications/{uid})
+    // =========================================================================
+    match /publications/{uid} {
+      allow read: if true;
+      allow write: if isOwner(uid) || isAdmin();
+    }
+
+    // =========================================================================
+    // 4. SLUG REGISTRY (/slugs/{slug})
+    // =========================================================================
+    match /slugs/{slug} {
+      allow read: if true;
+      allow create: if isAdmin() && request.resource.data.uid != null;
+      allow update: if isAdmin() && request.resource.data.uid == resource.data.uid;
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // 5. ADMIN ALLOWLIST (/admins/{email})
+    // =========================================================================
+    match /admins/{email} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    // =========================================================================
+    // 6. GLOBAL SETTINGS (/settings/{docId})
+    // =========================================================================
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // =========================================================================
+    // 7. PORTFOLIOS & PACKAGES (Backward Compatibility)
+    // =========================================================================
+    match /portfolios/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow write: if isOwner(uid) || isAdmin();
+    }
+    match /published_portfolios/{uid} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /packages/{tier} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Promo codes are readable for validation, but only admins can create or edit them.
+    match /promo_codes/{code} {
+      allow read: if request.auth != null;
+      allow create: if isAdmin();
+      allow update: if isAdmin()
+        || (
+          request.auth != null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['redeemedCount'])
+          && request.resource.data.redeemedCount == resource.data.redeemedCount + 1
+        );
+      allow delete: if isAdmin();
+    }
+  }
+}
