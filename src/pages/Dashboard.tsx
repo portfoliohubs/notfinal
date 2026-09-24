@@ -346,15 +346,9 @@ export default function Dashboard() {
         });
       }
 
-      form.cases.forEach((c, idx) => {
-        if (c.photo && c.photo.startsWith('data:image')) {
-          uploadItems.push({
-            key: `case_${idx}`,
-            dataUrl: c.photo,
-            path: `cases/${Date.now()}_${idx}.jpg`
-          });
-        }
-      });
+      // Note: Cases are handled separately via subcollection handlers, not in main form.cases array
+      // Clinical cases are saved through handleAddNewCase, handleUpdateCaseItem, handleDeleteCaseItem
+      // which use saveClinicalCaseToSubcollection to store in users/{uid}/cases
 
       // 2. Perform parallel batch upload with real-time feedback
       const uploadResults = await uploadBatchResilient(
@@ -366,33 +360,8 @@ export default function Dashboard() {
       // 3. Resolve final profile photo URL
       const profileUrl = uploadResults[profileKey] || form.profilePhoto || '';
 
-      // 4. Resolve final case photo URLs with clean values
-      const processedCases: ClinicalCase[] = form.cases.map((c, idx) => {
-        const finalUrl = uploadResults[`case_${idx}`] || c.photo || '';
-        const item: ClinicalCase = {
-          id: c.id || `case_${Date.now()}_${idx}`,
-          uid: user.uid,
-          category: c.category || 'operative',
-          categoryAr: c.categoryAr || '',
-          customCategory: c.customCategory || '',
-          title: c.title || '',
-          titleAr: c.titleAr || '',
-          description: c.description || '',
-          descriptionAr: c.descriptionAr || '',
-          photo: finalUrl,
-          preview: finalUrl,
-          sortOrder: typeof c.sortOrder === 'number' ? c.sortOrder : idx,
-          createdAt: c.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        if (typeof c.originalSizeKb === 'number') {
-          item.originalSizeKb = c.originalSizeKb;
-        }
-        if (typeof c.compressedSizeKb === 'number') {
-          item.compressedSizeKb = c.compressedSizeKb;
-        }
-        return item;
-      });
+      // 4. Skip case processing - cases are handled via subcollection
+      // The subcollection is the single source of truth for clinical cases
 
       // 4b. Sanitize timeline items
       const sanitizedTimeline: Milestone[] = (form.timeline || []).map(t => ({
@@ -458,11 +427,12 @@ export default function Dashboard() {
         console.warn('[Dashboard] Firestore mirror write warning:', fsErr);
       }
 
-      // 7. Update local state
+      // 7. Update local state - DO NOT include cases array in main document
+      // Cases are stored in subcollection only
       const nextPortfolio: PortfolioData = {
         ...portfolio!,
         ...updatedPayload,
-        cases: [],
+        cases: [], // ✅ Empty - cases are in subcollection only
         caseCount: subcollectionCases.length,
         profilePhoto: profileUrl,
         profilePreview: profileUrl,

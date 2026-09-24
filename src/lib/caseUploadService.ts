@@ -64,7 +64,8 @@ export async function saveClinicalCaseToSubcollection(uid: string, caseData: Cli
   };
   await cloudflareApi.saveCase(sanitizedCase, uid);
   try {
-    await setDoc(doc(db, 'portfolios', uid, 'cases', sanitizedCase.id), sanitizedCase, { merge: true });
+    // Unified path: users/{uid}/cases - single source of truth
+    await setDoc(doc(db, 'users', uid, 'cases', sanitizedCase.id), sanitizedCase, { merge: true });
   } catch (fsErr) {
     console.warn('[caseUploadService] Firestore mirror saveCase warning:', fsErr);
   }
@@ -75,7 +76,8 @@ export async function saveClinicalCaseToSubcollection(uid: string, caseData: Cli
 export async function deleteClinicalCaseComplete(uid: string, caseId: string): Promise<void> {
   await cloudflareApi.deleteCase(caseId, uid);
   try {
-    await deleteDoc(doc(db, 'portfolios', uid, 'cases', caseId));
+    // Unified path: users/{uid}/cases - single source of truth
+    await deleteDoc(doc(db, 'users', uid, 'cases', caseId));
   } catch (fsErr) {
     console.warn('[caseUploadService] Firestore mirror deleteCase warning:', fsErr);
   }
@@ -92,9 +94,9 @@ export async function fetchUserCases(uid: string): Promise<ClinicalCase[]> {
     console.warn('[fetchUserCases] Cloudflare API getCases note:', error);
   }
 
-  // Fallback to Firestore subcollection
+  // Fallback to Firestore subcollection - unified path: users/{uid}/cases
   try {
-    const snap = await getDocs(collection(db, 'portfolios', uid, 'cases'));
+    const snap = await getDocs(collection(db, 'users', uid, 'cases'));
     if (!snap.empty) {
       return snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as ClinicalCase))
