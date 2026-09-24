@@ -682,7 +682,26 @@ export default function AdminDashboard() {
       // Update Local State with FULL merged record
       setDoctors(prev => prev.map(d => d.id === doctor.id ? fullApprovedDoctor : d));
 
-      // 4. Trigger Real Static HTML Generation on Server
+      // 4. Fetch real cases from Firebase subcollection before HTML generation
+      let realCases = [];
+      try {
+        const casesSnap = await getDocs(collection(db, 'users', doctor.id, 'cases'));
+        if (!casesSnap.empty) {
+          realCases = casesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          realCases.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          console.log(`📋 Fetched ${realCases.length} real cases from Firebase subcollection for ${doctor.fullName || doctor.fullNameAr}`);
+        }
+      } catch (casesErr) {
+        console.warn('Could not fetch cases subcollection:', casesErr);
+      }
+
+      // Fallback to document cases if subcollection is empty
+      if (realCases.length === 0 && Array.isArray(doctor.cases) && doctor.cases.length > 0) {
+        realCases = doctor.cases;
+        console.log(`📋 Using ${realCases.length} cases from doctor document as fallback`);
+      }
+
+      // 5. Trigger Real Static HTML Generation on Server
       let serverGenSuccess = false;
       try {
         const genRes = await fetch('/api/admin/generate-doctor-html', {
@@ -690,7 +709,7 @@ export default function AdminDashboard() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             doctor: fullApprovedDoctor,
-            cases: doctor.cases || []
+            cases: realCases
           })
         });
         if (genRes.ok) {

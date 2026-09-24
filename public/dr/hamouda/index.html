@@ -1,355 +1,34 @@
-/**
- * PortfolioHubs - Doctor Static Page Template Builder
- * Generates modern, responsive doctor portfolio HTML matching model/index.html
- * Includes:
- * - Dynamic AR/EN language switching
- * - Dark/Light mode toggle
- * - Hero, Skills, Education & Career Timeline
- * - Clinical Cases with Before/After comparison slider
- * - Dedicated Blog & Medical Articles section (after Cases)
- * - Contact & Google Map location
- * - Fixed bottom navigation & floating quick-action button
- * - Schema.org JSON-LD structured data for SEO
- */
-
-function escapeHtml(str) {
-  if (str === null || str === undefined) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function escapeAttr(str) {
-  return escapeHtml(str);
-}
-
-function safeJsonLd(obj) {
-  return JSON.stringify(obj)
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/&/g, '\\u0026');
-}
-
-function slugify(text) {
-  if (!text) return 'doctor';
-  return String(text)
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, '-')
-    .replace(/[^\w\u0621-\u064A-]/g, '')
-    .replace(/--+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'doctor';
-}
-
-function getCategoryLabels(catKey, customCat) {
-  const map = {
-    implant: { en: 'Dental Implants', ar: 'زراعة الأسنان' },
-    ortho: { en: 'Orthodontics', ar: 'تقويم الأسنان' },
-    cosmetic: { en: 'Cosmetic Dentistry', ar: 'تجميل الأسنان' },
-    endodontics: { en: 'Endodontics & Root Canal', ar: 'علاج الجذور والأعصاب' },
-    periodontics: { en: 'Periodontics & Gum Care', ar: 'علاج وجراحة اللثة' },
-    pediatric: { en: 'Pediatric Dentistry', ar: 'طب أسنان الأطفال' },
-    surgery: { en: 'Oral & Maxillofacial Surgery', ar: 'جراحة الفم والفكين' },
-    prosthodontics: { en: 'Prosthodontics & Crowns', ar: 'التركيبات السنية والجسور' },
-    restorative: { en: 'Restorative Dentistry', ar: 'حشوات وترميم الأسنان' },
-    laser: { en: 'Laser Dentistry', ar: 'طب الأسنان بالليزر' },
-    general: { en: 'General Dental Care', ar: 'طب الأسنان العام' }
-  };
-
-  if (catKey === 'custom' && customCat) {
-    return { en: customCat, ar: customCat };
-  }
-  return map[catKey] || { en: catKey || 'Dental Treatment', ar: catKey || 'علاج الأسنان' };
-}
-
-export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
-  const username = doctor.username || doctor.slug || slugify(doctor.fullName || 'doctor');
-  const pageCanonicalUrl = `${baseUrl}/dr/${username}/`;
-  const citySlug = slugify(doctor.locationAddress || doctor.locationAddressAr || 'cairo');
-
-  const fullNameEn = escapeHtml(doctor.fullName || 'Dr. Dentist');
-  const fullNameAr = escapeHtml(doctor.fullNameAr || doctor.fullName || 'طبيب أسنان');
-  const titleEn = escapeHtml(doctor.title || 'Dentist');
-  const titleAr = escapeHtml(doctor.titleAr || 'طبيب أسنان');
-  const universityEn = escapeHtml(doctor.university || 'Dental Faculty');
-  const universityAr = escapeHtml(doctor.universityAr || doctor.university || 'كلية طب الأسنان');
-  const gradYear = escapeHtml(doctor.graduationYear || '');
-  const clinicNameEn = escapeHtml(doctor.clinicName || 'Dental Clinic');
-  const clinicNameAr = escapeHtml(doctor.clinicNameAr || doctor.clinicName || 'عيادة الأسنان');
-  const addressEn = escapeHtml(doctor.locationAddress || '');
-  const addressAr = escapeHtml(doctor.locationAddressAr || doctor.locationAddress || '');
-  const phone = escapeHtml(doctor.phone || '');
-  const whatsapp = escapeHtml(doctor.whatsapp || doctor.phone || '');
-  const email = escapeHtml(doctor.email || '');
-
-  let profilePhotoUrl = doctor.profilePhotoPath 
-    ? `${baseUrl}/${doctor.profilePhotoPath}` 
-    : (doctor.profilePhoto || `${baseUrl}/assets/default-doctor-avatar.webp`);
-
-  const pageTitle = `${fullNameEn} | ${fullNameAr} - PortfolioHubs`;
-  const metaDesc = `الملف المهني والبورتفوليو المهني المعتمد لـ ${fullNameAr} (${fullNameEn})، ${titleAr} خريج ${universityAr} ${gradYear ? '(' + gradYear + ')' : ''}. شاهد الحالات السريرية والمقالات وتواصل مباشرة.`;
-
-  const jsonLdData = {
-    "@context": "https://schema.org",
-    "@graph": [
-      {
-        "@type": "Person",
-        "@id": `${pageCanonicalUrl}#person`,
-        "name": doctor.fullName || doctor.fullNameAr,
-        "alternateName": doctor.fullNameAr,
-        "jobTitle": doctor.title || "Dentist",
-        "image": profilePhotoUrl,
-        "email": doctor.email ? `mailto:${doctor.email}` : undefined,
-        "telephone": doctor.phone || doctor.whatsapp || undefined,
-        "alumniOf": doctor.university ? {
-          "@type": "EducationalOrganization",
-          "name": doctor.university
-        } : undefined,
-        "sameAs": [
-          doctor.instagram ? (doctor.instagram.startsWith('http') ? doctor.instagram : `https://instagram.com/${doctor.instagram}`) : undefined,
-          doctor.facebook ? (doctor.facebook.startsWith('http') ? doctor.facebook : `https://facebook.com/${doctor.facebook}`) : undefined,
-          doctor.linkedin ? (doctor.linkedin.startsWith('http') ? doctor.linkedin : `https://linkedin.com/in/${doctor.linkedin}`) : undefined
-        ].filter(Boolean)
-      },
-      {
-        "@type": ["Dentist", "LocalBusiness"],
-        "@id": `${pageCanonicalUrl}#dentist`,
-        "name": doctor.clinicName || doctor.fullNameAr || doctor.fullName,
-        "image": profilePhotoUrl,
-        "url": pageCanonicalUrl,
-        "telephone": doctor.phone || doctor.whatsapp || undefined,
-        "address": doctor.locationAddress ? {
-          "@type": "PostalAddress",
-          "streetAddress": doctor.locationAddress
-        } : undefined,
-        "employee": {
-          "@id": `${pageCanonicalUrl}#person`
-        }
-      }
-    ]
-  };
-
-  // Render Skills Lists
-  const clinicalSkills = doctor.clinicalSkills || [];
-  const clinicalSkillsAr = doctor.clinicalSkillsAr || [];
-  const digitalSkills = doctor.digitalSkills || [];
-  const digitalSkillsAr = doctor.digitalSkillsAr || [];
-  const softSkills = doctor.softSkills || [];
-  const softSkillsAr = doctor.softSkillsAr || [];
-
-  const renderSkillList = (enList, arList) => {
-    const list = (enList && enList.length > 0) ? enList : (arList || []);
-    if (!list || list.length === 0) {
-      return '<div class="skill-item"><span class="skill-number">1</span><span class="skill-text" data-en="Comprehensive Dental Care" data-ar="رعاية سنية متكاملة">Comprehensive Dental Care</span></div>';
-    }
-    return list.map((skill, i) => {
-      const en = escapeHtml(skill);
-      const ar = escapeHtml((arList && arList[i]) ? arList[i] : skill);
-      return `
-        <div class="skill-item">
-          <span class="skill-number">${i + 1}</span>
-          <span class="skill-text" data-en="${en}" data-ar="${ar}">${en}</span>
-        </div>
-      `;
-    }).join('\n');
-  };
-
-  // Render Timeline
-  const timeline = doctor.timeline || [];
-  const renderTimelineHtml = () => {
-    if (!timeline || timeline.length === 0) {
-      return `
-        <div class="timeline-item">
-          <div class="timeline-marker"></div>
-          <div class="timeline-content">
-            <span class="timeline-year">${gradYear || 'الآن'}</span>
-            <p class="timeline-event" data-en="Clinical practice at ${clinicNameEn}" data-ar="ممارسة العمل الإكلينيكي في ${clinicNameAr}">Clinical practice at ${clinicNameEn}</p>
-          </div>
-        </div>
-      `;
-    }
-    return timeline.map(item => {
-      const year = escapeHtml(item.year || '');
-      const eventEn = escapeHtml(item.event || item.eventAr || '');
-      const eventAr = escapeHtml(item.eventAr || item.event || '');
-      return `
-        <div class="timeline-item">
-          <div class="timeline-marker"></div>
-          <div class="timeline-content">
-            <span class="timeline-year">${year}</span>
-            <p class="timeline-event" data-en="${eventEn}" data-ar="${eventAr}">${eventEn}</p>
-          </div>
-        </div>
-      `;
-    }).join('\n');
-  };
-
-  // Render Cases
-  const renderCasesHtml = () => {
-    console.log(`🔍 Rendering cases HTML. Total cases: ${cases ? cases.length : 0}`);
-    
-    if (!cases || cases.length === 0) {
-      console.log('⚠️ No cases available, showing placeholder');
-      return `
-        <div style="text-align: center; padding: 2.5rem; background: var(--bg-secondary); border-radius: 1rem; color: var(--text-light);">
-          <i class="fas fa-tooth" style="font-size: 2.5rem; margin-bottom: 1rem; color: var(--primary-color);"></i>
-          <p data-en="Clinical cases portfolio is being updated. Contact doctor directly for case discussions." data-ar="جاري تحديث سجل الحالات السريرية. يرجى التواصل مع الطبيب مباشرة للاستفسارات العلاجية.">Clinical cases portfolio is being updated. Contact doctor directly for case discussions.</p>
-        </div>
-      `;
-    }
-
-    // Group cases by category
-    const grouped = {};
-    cases.forEach((c, idx) => {
-      // Handle different data structures from Firebase vs direct JSON
-      const caseData = c;
-      const catKey = caseData.category || caseData.treatmentType || 'general';
-      const catLabels = getCategoryLabels(catKey, caseData.customCategory);
-      
-      if (!grouped[catKey]) {
-        grouped[catKey] = {
-          labels: catLabels,
-          items: []
-        };
-      }
-      grouped[catKey].items.push({ caseData: caseData, index: idx });
-    });
-
-    return Object.keys(grouped).map(catKey => {
-      const group = grouped[catKey];
-      const catTitleEn = escapeHtml(group.labels.en);
-      const catTitleAr = escapeHtml(group.labels.ar);
-
-      const itemsHtml = group.items.map(({ caseData, index }) => {
-        // Handle different field names from different data sources
-        const titleEn = escapeHtml(caseData.title || caseData.alt || caseData.caseTitle || `Clinical Case #${index + 1}`);
-        const titleAr = escapeHtml(caseData.titleAr || caseData.alt_ar || caseData.caseTitleAr || caseData.title || `حالة علاجية رقم ${index + 1}`);
-        const descEn = escapeHtml(caseData.description || caseData.caseDescription || '');
-        const descAr = escapeHtml(caseData.descriptionAr || caseData.caseDescriptionAr || caseData.description || '');
-        const treatment = escapeHtml(caseData.treatmentType || caseData.category || '');
-
-        // Handle different image field structures
-        let beforeImg = '';
-        let afterImg = '';
-        
-        // Try different field names for before image
-        if (caseData.beforePhoto?.url) {
-          beforeImg = caseData.beforePhoto.url.startsWith('http') ? caseData.beforePhoto.url : `${baseUrl}/${caseData.beforePhoto.url}`;
-        } else if (caseData.beforePhotoUrl) {
-          beforeImg = caseData.beforePhotoUrl.startsWith('http') ? caseData.beforePhotoUrl : `${baseUrl}/${caseData.beforePhotoUrl}`;
-        } else if (caseData.photoPath) {
-          beforeImg = caseData.photoPath.startsWith('http') ? caseData.photoPath : `${baseUrl}/${caseData.photoPath}`;
-        } else if (caseData.photo) {
-          beforeImg = caseData.photo.startsWith('http') ? caseData.photo : `${baseUrl}/${caseData.photo}`;
-        } else if (caseData.casePhoto) {
-          beforeImg = caseData.casePhoto.startsWith('http') ? caseData.casePhoto : `${baseUrl}/${caseData.casePhoto}`;
-        }
-        
-        // Try different field names for after image
-        if (caseData.afterPhoto?.url) {
-          afterImg = caseData.afterPhoto.url.startsWith('http') ? caseData.afterPhoto.url : `${baseUrl}/${caseData.afterPhoto.url}`;
-        } else if (caseData.afterPhotoUrl) {
-          afterImg = caseData.afterPhotoUrl.startsWith('http') ? caseData.afterPhotoUrl : `${baseUrl}/${caseData.afterPhotoUrl}`;
-        } else if (caseData.thumbnailPath) {
-          afterImg = caseData.thumbnailPath.startsWith('http') ? caseData.thumbnailPath : `${baseUrl}/${caseData.thumbnailPath}`;
-        } else if (caseData.preview) {
-          afterImg = caseData.preview.startsWith('http') ? caseData.preview : `${baseUrl}/${caseData.preview}`;
-        } else if (caseData.casePhotoAfter) {
-          afterImg = caseData.casePhotoAfter.startsWith('http') ? caseData.casePhotoAfter : `${baseUrl}/${caseData.casePhotoAfter}`;
-        }
-        
-        // Fallback if no after image
-        if (!afterImg) {
-          afterImg = beforeImg;
-        }
-        
-        const hasComparison = beforeImg && afterImg && (beforeImg !== afterImg);
-
-        return `
-          <div class="case-card">
-            <div class="case-media-box">
-              ${hasComparison ? `
-                <div class="ba-comparator" data-comparator>
-                  <div class="ba-image-layer ba-after">
-                    <img src="${escapeAttr(afterImg)}" alt="${escapeAttr(titleAr)} - بعد العلاج (After)" loading="lazy" decoding="async" />
-                    <span class="ba-tag tag-after" data-en="After" data-ar="بعد العلاج">After</span>
-                  </div>
-                  <div class="ba-image-layer ba-before" data-before-layer style="width: 50%;">
-                    <img src="${escapeAttr(beforeImg)}" alt="${escapeAttr(titleAr)} - قبل العلاج (Before)" loading="lazy" decoding="async" />
-                    <span class="ba-tag tag-before" data-en="Before" data-ar="قبل العلاج">Before</span>
-                  </div>
-                  <div class="ba-handle" data-handle style="left: 50%;">
-                    <div class="ba-handle-line"></div>
-                    <div class="ba-handle-button" aria-label="اسحب للمقارنة">
-                      <i class="fas fa-arrows-alt-h"></i>
-                    </div>
-                    <div class="ba-handle-line"></div>
-                  </div>
-                  <input type="range" min="0" max="100" value="50" class="ba-range-input" data-slider aria-label="مقارنة قبل وبعد العلاج" />
-                </div>
-              ` : `
-                <div class="case-image-wrapper single">
-                  <img src="${escapeAttr(afterImg || beforeImg || `${baseUrl}/assets/default-case.webp`)}" alt="${escapeAttr(titleAr)}" class="case-image" loading="lazy" decoding="async" />
-                </div>
-              `}
-            </div>
-            
-            <div class="case-description">
-              <h4 class="case-card-title" data-en="${titleEn}" data-ar="${titleAr}">${titleEn}</h4>
-              ${descEn ? `<p class="case-desc-text" data-en="${descEn}" data-ar="${descAr || descEn}">${descEn}</p>` : ''}
-              ${treatment ? `<span class="case-badge"><i class="fas fa-check-circle"></i> ${treatment}</span>` : ''}
-            </div>
-          </div>
-        `;
-      }).join('\n');
-
-      return `
-        <div class="case-category">
-          <h3 class="case-category-title" data-en="${catTitleEn}" data-ar="${catTitleAr}">${catTitleEn}</h3>
-          <div class="cases-grid">
-            ${itemsHtml}
-          </div>
-        </div>
-      `;
-    }).join('\n');
-  };
-
-  const cleanWhatsapp = whatsapp.replace(/[^0-9]/g, '');
-
-  return `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en" dir="ltr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${escapeAttr(pageTitle)}</title>
-    <meta name="description" content="${escapeAttr(metaDesc)}">
-    <meta name="author" content="${escapeAttr(fullNameEn)}">
-    <link rel="canonical" href="${escapeAttr(pageCanonicalUrl)}">
+    <title>Dr. Hamouda | د. حمودة - PortfolioHubs</title>
+    <meta name="description" content="الملف المهني والبورتفوليو المهني المعتمد لـ د. حمودة (Dr. Hamouda)، طبيب أسنان خريج كلية طب الأسنان (2020). شاهد الحالات السريرية والمقالات وتواصل مباشرة.">
+    <meta name="author" content="Dr. Hamouda">
+    <link rel="canonical" href="https://portfoliohubs.github.io/dr/hamouda/">
     <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1">
     <meta name="theme-color" content="#2563eb">
 
     <!-- OpenGraph Tags -->
     <meta property="og:type" content="profile">
-    <meta property="og:title" content="${escapeAttr(pageTitle)}">
-    <meta property="og:description" content="${escapeAttr(metaDesc)}">
-    <meta property="og:url" content="${escapeAttr(pageCanonicalUrl)}">
+    <meta property="og:title" content="Dr. Hamouda | د. حمودة - PortfolioHubs">
+    <meta property="og:description" content="الملف المهني والبورتفوليو المهني المعتمد لـ د. حمودة (Dr. Hamouda)، طبيب أسنان خريج كلية طب الأسنان (2020). شاهد الحالات السريرية والمقالات وتواصل مباشرة.">
+    <meta property="og:url" content="https://portfoliohubs.github.io/dr/hamouda/">
     <meta property="og:site_name" content="PortfolioHubs">
-    <meta property="og:image" content="${escapeAttr(profilePhotoUrl)}">
+    <meta property="og:image" content="https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572">
 
     <!-- Twitter Cards -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="${escapeAttr(pageTitle)}">
-    <meta name="twitter:description" content="${escapeAttr(metaDesc)}">
-    <meta name="twitter:image" content="${escapeAttr(profilePhotoUrl)}">
+    <meta name="twitter:title" content="Dr. Hamouda | د. حمودة - PortfolioHubs">
+    <meta name="twitter:description" content="الملف المهني والبورتفوليو المهني المعتمد لـ د. حمودة (Dr. Hamouda)، طبيب أسنان خريج كلية طب الأسنان (2020). شاهد الحالات السريرية والمقالات وتواصل مباشرة.">
+    <meta name="twitter:image" content="https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572">
 
     <link rel="icon" type="image/png" href="https://github.com/user-attachments/assets/fef6c67d-5ed0-4459-b41d-4c288ab48163">
 
     <!-- Schema.org Structured Data -->
     <script type="application/ld+json">
-      ${safeJsonLd(jsonLdData)}
+      {"@context":"https://schema.org","@graph":[{"@type":"Person","@id":"https://portfoliohubs.github.io/dr/hamouda/#person","name":"Dr. Hamouda","alternateName":"د. حمودة","jobTitle":"Dentist","image":"https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572","email":"mailto:dr.hamouda@example.com","telephone":"+201000000000","alumniOf":{"@type":"EducationalOrganization","name":"Faculty of Dentistry"},"sameAs":[]},{"@type":["Dentist","LocalBusiness"],"@id":"https://portfoliohubs.github.io/dr/hamouda/#dentist","name":"Hamouda Dental Clinic","image":"https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572","url":"https://portfoliohubs.github.io/dr/hamouda/","telephone":"+201000000000","address":{"@type":"PostalAddress","streetAddress":"Cairo, Egypt"},"employee":{"@id":"https://portfoliohubs.github.io/dr/hamouda/#person"}}]}
     </script>
     
     <!-- Font Awesome -->
@@ -1396,7 +1075,7 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
             </button>
             
             <div class="header-logo">
-                <h1 class="header-name" id="headerName" data-en="${fullNameEn}" data-ar="${fullNameAr}">${fullNameEn}</h1>
+                <h1 class="header-name" id="headerName" data-en="Dr. Hamouda" data-ar="د. حمودة">Dr. Hamouda</h1>
             </div>
             
             <div class="header-controls">
@@ -1436,25 +1115,25 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
             <div class="hero-content">
                 <div class="profile-image-container">
                     <img 
-                        src="${escapeAttr(profilePhotoUrl)}" 
-                        alt="${escapeAttr(fullNameEn)}"
-                        data-alt-en="${escapeAttr(fullNameEn)}"
-                        data-alt-ar="${escapeAttr(fullNameAr)}"
+                        src="https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572" 
+                        alt="Dr. Hamouda"
+                        data-alt-en="Dr. Hamouda"
+                        data-alt-ar="د. حمودة"
                         class="profile-image"
                         id="profileImage"
                     />
                 </div>
                 
-                <h1 class="hero-name" id="heroName" data-en="${fullNameEn}" data-ar="${fullNameAr}">${fullNameEn}</h1>
-                <p class="hero-tagline" id="heroTagline" data-en="${titleEn}" data-ar="${titleAr}">${titleEn}</p>
-                <p class="hero-graduation" id="heroGraduation" data-en="Graduated from ${universityEn} ${gradYear ? '(' + gradYear + ')' : ''}" data-ar="خريج ${universityAr} ${gradYear ? 'دفعة ' + gradYear : ''}">Graduated from ${universityEn} ${gradYear ? '(' + gradYear + ')' : ''}</p>
+                <h1 class="hero-name" id="heroName" data-en="Dr. Hamouda" data-ar="د. حمودة">Dr. Hamouda</h1>
+                <p class="hero-tagline" id="heroTagline" data-en="Dentist" data-ar="طبيب أسنان">Dentist</p>
+                <p class="hero-graduation" id="heroGraduation" data-en="Graduated from Faculty of Dentistry (2020)" data-ar="خريج كلية طب الأسنان دفعة 2020">Graduated from Faculty of Dentistry (2020)</p>
                 
                 <div class="hero-position" id="heroPosition">
                     <p>
                         <span data-en="Practicing as" data-ar="يمارس عمله كـ">Practicing as</span>
-                        <strong id="heroRole" data-en="${titleEn}" data-ar="${titleAr}">${titleEn}</strong>
+                        <strong id="heroRole" data-en="Dentist" data-ar="طبيب أسنان">Dentist</strong>
                         <span data-en="at" data-ar="في">at</span>
-                        <strong id="heroClinic" data-en="${clinicNameEn}" data-ar="${clinicNameAr}">${clinicNameEn}</strong>
+                        <strong id="heroClinic" data-en="Hamouda Dental Clinic" data-ar="عيادة حمودة لطب الأسنان">Hamouda Dental Clinic</strong>
                     </p>
                 </div>
             </div>
@@ -1477,7 +1156,30 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
                         <span data-en="Clinical Skills" data-ar="المهارات الإكلينيكية">Clinical Skills</span>
                     </h3>
                     <div class="skill-list" id="clinicalSkills">
-                        ${renderSkillList(clinicalSkills, clinicalSkillsAr)}
+                        
+        <div class="skill-item">
+          <span class="skill-number">1</span>
+          <span class="skill-text" data-en="Oral Surgery" data-ar="جراحة الفم">Oral Surgery</span>
+        </div>
+      
+
+        <div class="skill-item">
+          <span class="skill-number">2</span>
+          <span class="skill-text" data-en="Endodontics" data-ar="علاج الجذور">Endodontics</span>
+        </div>
+      
+
+        <div class="skill-item">
+          <span class="skill-number">3</span>
+          <span class="skill-text" data-en="Prosthodontics" data-ar="التركيبات الثابتة والمتحركة">Prosthodontics</span>
+        </div>
+      
+
+        <div class="skill-item">
+          <span class="skill-number">4</span>
+          <span class="skill-text" data-en="Cosmetic Dentistry" data-ar="طب الأسنان التجميلي">Cosmetic Dentistry</span>
+        </div>
+      
                     </div>
                 </div>
                 
@@ -1487,7 +1189,24 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
                         <span data-en="Digital Dentistry" data-ar="طب الأسنان الرقمي">Digital Dentistry</span>
                     </h3>
                     <div class="skill-list" id="digitalSkills">
-                        ${renderSkillList(digitalSkills, digitalSkillsAr)}
+                        
+        <div class="skill-item">
+          <span class="skill-number">1</span>
+          <span class="skill-text" data-en="Digital Documentation" data-ar="التوثيق الرقمي">Digital Documentation</span>
+        </div>
+      
+
+        <div class="skill-item">
+          <span class="skill-number">2</span>
+          <span class="skill-text" data-en="Dental Photography" data-ar="التصوير السني">Dental Photography</span>
+        </div>
+      
+
+        <div class="skill-item">
+          <span class="skill-number">3</span>
+          <span class="skill-text" data-en="Computer-Aided Design" data-ar="التصميم بمساعدة الحاسوب">Computer-Aided Design</span>
+        </div>
+      
                     </div>
                 </div>
                 
@@ -1497,7 +1216,24 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
                         <span data-en="Patient Care & Soft Skills" data-ar="رعاية المرضى والتواصل">Patient Care & Soft Skills</span>
                     </h3>
                     <div class="skill-list" id="softSkills">
-                        ${renderSkillList(softSkills, softSkillsAr)}
+                        
+        <div class="skill-item">
+          <span class="skill-number">1</span>
+          <span class="skill-text" data-en="Patient Communication" data-ar="التواصل مع المرضى">Patient Communication</span>
+        </div>
+      
+
+        <div class="skill-item">
+          <span class="skill-number">2</span>
+          <span class="skill-text" data-en="Treatment Planning" data-ar="تخطيط العلاج">Treatment Planning</span>
+        </div>
+      
+
+        <div class="skill-item">
+          <span class="skill-number">3</span>
+          <span class="skill-text" data-en="Team Leadership" data-ar="القيادة الجماعية">Team Leadership</span>
+        </div>
+      
                     </div>
                 </div>
             </div>
@@ -1515,16 +1251,51 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
             
             <div class="education-container">
                 <div class="university-info">
-                    <h3 class="university-name" id="universityName" data-en="${universityEn}" data-ar="${universityAr}">${universityEn}</h3>
+                    <h3 class="university-name" id="universityName" data-en="Faculty of Dentistry" data-ar="كلية طب الأسنان">Faculty of Dentistry</h3>
                     <p class="graduation-year">
-                        <span data-en="Graduation Year" data-ar="سنة التخرج">Graduation Year</span>: <span id="gradYear">${gradYear || 'N/A'}</span>
+                        <span data-en="Graduation Year" data-ar="سنة التخرج">Graduation Year</span>: <span id="gradYear">2020</span>
                     </p>
                 </div>
                 
                 <div class="timeline-container">
                     <h3 class="timeline-title" data-en="Career Journey & Key Milestones" data-ar="محطات المسيرة المهنية والتدريب">Career Journey & Key Milestones</h3>
                     <div class="timeline" id="timeline">
-                        ${renderTimelineHtml()}
+                        
+        <div class="timeline-item">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <span class="timeline-year">2015</span>
+            <p class="timeline-event" data-en="Started Faculty of Dentistry" data-ar="بدء الدراسة في كلية طب الأسنان">Started Faculty of Dentistry</p>
+          </div>
+        </div>
+      
+
+        <div class="timeline-item">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <span class="timeline-year">2020</span>
+            <p class="timeline-event" data-en="Graduated from Faculty of Dentistry" data-ar="التخرج من كلية طب الأسنان">Graduated from Faculty of Dentistry</p>
+          </div>
+        </div>
+      
+
+        <div class="timeline-item">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <span class="timeline-year">2021</span>
+            <p class="timeline-event" data-en="Started Clinical Practice" data-ar="بدء الممارسة السريرية">Started Clinical Practice</p>
+          </div>
+        </div>
+      
+
+        <div class="timeline-item">
+          <div class="timeline-marker"></div>
+          <div class="timeline-content">
+            <span class="timeline-year">2023</span>
+            <p class="timeline-event" data-en="Opened Private Clinic" data-ar="افتتاح عيادة خاصة">Opened Private Clinic</p>
+          </div>
+        </div>
+      
                     </div>
                 </div>
             </div>
@@ -1541,7 +1312,102 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
             </div>
             
             <div class="cases-container" id="casesContainer">
-                ${renderCasesHtml()}
+                
+        <div class="case-category">
+          <h3 class="case-category-title" data-en="Cosmetic Dentistry" data-ar="تجميل الأسنان">Cosmetic Dentistry</h3>
+          <div class="cases-grid">
+            
+          <div class="case-card">
+            <div class="case-media-box">
+              
+                <div class="case-image-wrapper single">
+                  <img src="https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572" alt="تجميل الابتسامة بالقشور الخزفية" class="case-image" loading="lazy" decoding="async" />
+                </div>
+              
+            </div>
+            
+            <div class="case-description">
+              <h4 class="case-card-title" data-en="Smile Makeover with Porcelain Veneers" data-ar="تجميل الابتسامة بالقشور الخزفية">Smile Makeover with Porcelain Veneers</h4>
+              <p class="case-desc-text" data-en="Complete smile transformation using porcelain veneers" data-ar="Complete smile transformation using porcelain veneers">Complete smile transformation using porcelain veneers</p>
+              <span class="case-badge"><i class="fas fa-check-circle"></i> cosmetic</span>
+            </div>
+          </div>
+        
+          </div>
+        </div>
+      
+
+        <div class="case-category">
+          <h3 class="case-category-title" data-en="Endodontics &amp; Root Canal" data-ar="علاج الجذور والأعصاب">Endodontics &amp; Root Canal</h3>
+          <div class="cases-grid">
+            
+          <div class="case-card">
+            <div class="case-media-box">
+              
+                <div class="case-image-wrapper single">
+                  <img src="https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572" alt="علاج الجذور للضرس الطاحن" class="case-image" loading="lazy" decoding="async" />
+                </div>
+              
+            </div>
+            
+            <div class="case-description">
+              <h4 class="case-card-title" data-en="Root Canal Therapy on Molar" data-ar="علاج الجذور للضرس الطاحن">Root Canal Therapy on Molar</h4>
+              <p class="case-desc-text" data-en="Successful root canal treatment on molar tooth" data-ar="Successful root canal treatment on molar tooth">Successful root canal treatment on molar tooth</p>
+              <span class="case-badge"><i class="fas fa-check-circle"></i> endodontics</span>
+            </div>
+          </div>
+        
+          </div>
+        </div>
+      
+
+        <div class="case-category">
+          <h3 class="case-category-title" data-en="Prosthodontics &amp; Crowns" data-ar="التركيبات السنية والجسور">Prosthodontics &amp; Crowns</h3>
+          <div class="cases-grid">
+            
+          <div class="case-card">
+            <div class="case-media-box">
+              
+                <div class="case-image-wrapper single">
+                  <img src="https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572" alt="تركيب تاج E-MAX" class="case-image" loading="lazy" decoding="async" />
+                </div>
+              
+            </div>
+            
+            <div class="case-description">
+              <h4 class="case-card-title" data-en="E-MAX Crown Placement" data-ar="تركيب تاج E-MAX">E-MAX Crown Placement</h4>
+              <p class="case-desc-text" data-en="Placement of E-MAX ceramic crown for aesthetic restoration" data-ar="Placement of E-MAX ceramic crown for aesthetic restoration">Placement of E-MAX ceramic crown for aesthetic restoration</p>
+              <span class="case-badge"><i class="fas fa-check-circle"></i> prosthodontics</span>
+            </div>
+          </div>
+        
+          </div>
+        </div>
+      
+
+        <div class="case-category">
+          <h3 class="case-category-title" data-en="Pediatric Dentistry" data-ar="طب أسنان الأطفال">Pediatric Dentistry</h3>
+          <div class="cases-grid">
+            
+          <div class="case-card">
+            <div class="case-media-box">
+              
+                <div class="case-image-wrapper single">
+                  <img src="https://github.com/user-attachments/assets/97ba84f2-8190-4ea6-b396-c6beb0bb3572" alt="خلع سن طفولي" class="case-image" loading="lazy" decoding="async" />
+                </div>
+              
+            </div>
+            
+            <div class="case-description">
+              <h4 class="case-card-title" data-en="Pediatric Dental Extraction" data-ar="خلع سن طفولي">Pediatric Dental Extraction</h4>
+              <p class="case-desc-text" data-en="Gentle extraction of primary tooth in pediatric patient" data-ar="Gentle extraction of primary tooth in pediatric patient">Gentle extraction of primary tooth in pediatric patient</p>
+              <span class="case-badge"><i class="fas fa-check-circle"></i> pediatric</span>
+            </div>
+          </div>
+        
+          </div>
+        </div>
+      
             </div>
         </section>
 
@@ -1563,14 +1429,14 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
                     </div>
                     <div class="blog-content">
                         <div class="blog-meta">
-                            <span><i class="far fa-calendar-alt"></i> ${new Date().getFullYear()}</span>
-                            <span><i class="far fa-user"></i> <span data-en="${fullNameEn}" data-ar="${fullNameAr}">${fullNameEn}</span></span>
+                            <span><i class="far fa-calendar-alt"></i> 2026</span>
+                            <span><i class="far fa-user"></i> <span data-en="Dr. Hamouda" data-ar="د. حمودة">Dr. Hamouda</span></span>
                         </div>
                         <h3 class="blog-title">
-                            <a href="${baseUrl}/dr/${username}/articles/patient-guide.html" data-en="Comprehensive Patient Guide to Dental Care & Prevention" data-ar="دليل المريض الشامل للعناية بصحة الفم والأسنان والوقاية">Comprehensive Patient Guide to Dental Care & Prevention</a>
+                            <a href="https://portfoliohubs.github.io/dr/hamouda/articles/patient-guide.html" data-en="Comprehensive Patient Guide to Dental Care & Prevention" data-ar="دليل المريض الشامل للعناية بصحة الفم والأسنان والوقاية">Comprehensive Patient Guide to Dental Care & Prevention</a>
                         </h3>
                         <p class="blog-excerpt" data-en="Essential daily oral hygiene recommendations, preventive measures, and when to seek professional dental care." data-ar="أهم النصائح الوقائية اليومية للحفاظ على صحة الأسنان واللثة وتجنب التسوس والمشاكل الشائعة.">Essential daily oral hygiene recommendations, preventive measures, and when to seek professional dental care.</p>
-                        <a href="${baseUrl}/dr/${username}/articles/patient-guide.html" class="blog-read-more">
+                        <a href="https://portfoliohubs.github.io/dr/hamouda/articles/patient-guide.html" class="blog-read-more">
                             <span data-en="Read Article" data-ar="قراءة المقال">Read Article</span>
                             <i class="fas fa-arrow-right"></i>
                         </a>
@@ -1584,14 +1450,14 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
                     </div>
                     <div class="blog-content">
                         <div class="blog-meta">
-                            <span><i class="far fa-calendar-alt"></i> ${new Date().getFullYear()}</span>
-                            <span><i class="far fa-user"></i> <span data-en="${fullNameEn}" data-ar="${fullNameAr}">${fullNameEn}</span></span>
+                            <span><i class="far fa-calendar-alt"></i> 2026</span>
+                            <span><i class="far fa-user"></i> <span data-en="Dr. Hamouda" data-ar="د. حمودة">Dr. Hamouda</span></span>
                         </div>
                         <h3 class="blog-title">
-                            <a href="${baseUrl}/dr/${username}/articles/clinical-cases.html" data-en="Clinical Protocols & Advanced Treatment Procedures" data-ar="البروتوكولات السريرية وأحدث الإجراءات العلاجية في طب الأسنان">Clinical Protocols & Advanced Treatment Procedures</a>
+                            <a href="https://portfoliohubs.github.io/dr/hamouda/articles/clinical-cases.html" data-en="Clinical Protocols & Advanced Treatment Procedures" data-ar="البروتوكولات السريرية وأحدث الإجراءات العلاجية في طب الأسنان">Clinical Protocols & Advanced Treatment Procedures</a>
                         </h3>
                         <p class="blog-excerpt" data-en="In-depth analysis of modern diagnostic techniques, restorative dental therapies, and clinical case management." data-ar="استعراض للأساليب التشخيصية المتقدمة، خطط العلاج التخصصية، ومراحل توثيق الحالات الإكلينيكية.">In-depth analysis of modern diagnostic techniques, restorative dental therapies, and clinical case management.</p>
-                        <a href="${baseUrl}/dr/${username}/articles/clinical-cases.html" class="blog-read-more">
+                        <a href="https://portfoliohubs.github.io/dr/hamouda/articles/clinical-cases.html" class="blog-read-more">
                             <span data-en="Read Article" data-ar="قراءة المقال">Read Article</span>
                             <i class="fas fa-arrow-right"></i>
                         </a>
@@ -1605,14 +1471,14 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
                     </div>
                     <div class="blog-content">
                         <div class="blog-meta">
-                            <span><i class="far fa-calendar-alt"></i> ${new Date().getFullYear()}</span>
-                            <span><i class="far fa-user"></i> <span data-en="${fullNameEn}" data-ar="${fullNameAr}">${fullNameEn}</span></span>
+                            <span><i class="far fa-calendar-alt"></i> 2026</span>
+                            <span><i class="far fa-user"></i> <span data-en="Dr. Hamouda" data-ar="د. حمودة">Dr. Hamouda</span></span>
                         </div>
                         <h3 class="blog-title">
-                            <a href="${baseUrl}/dr/${username}/articles/dentist-in-${citySlug}.html" data-en="Premier Dental Services & Patient Care in ${addressEn || 'the Region'}" data-ar="أفضل خدمات طب الأسنان ورعاية المرضى في ${addressAr || 'المنطقة'}">Premier Dental Services & Patient Care in ${addressEn || 'the Region'}</a>
+                            <a href="https://portfoliohubs.github.io/dr/hamouda/articles/dentist-in-cairo-egypt.html" data-en="Premier Dental Services & Patient Care in Cairo, Egypt" data-ar="أفضل خدمات طب الأسنان ورعاية المرضى في القاهرة، مصر">Premier Dental Services & Patient Care in Cairo, Egypt</a>
                         </h3>
                         <p class="blog-excerpt" data-en="Overview of specialized clinic services, state-of-the-art sterilization, and comfortable patient experience." data-ar="تفاصيل الخدمات الطبية المتاحة بالعيادة، معايير التعقيم والجودة، وتجربة المريض المريحة.">Overview of specialized clinic services, state-of-the-art sterilization, and comfortable patient experience.</p>
-                        <a href="${baseUrl}/dr/${username}/articles/dentist-in-${citySlug}.html" class="blog-read-more">
+                        <a href="https://portfoliohubs.github.io/dr/hamouda/articles/dentist-in-cairo-egypt.html" class="blog-read-more">
                             <span data-en="Read Article" data-ar="قراءة المقال">Read Article</span>
                             <i class="fas fa-arrow-right"></i>
                         </a>
@@ -1626,14 +1492,14 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
                     </div>
                     <div class="blog-content">
                         <div class="blog-meta">
-                            <span><i class="far fa-calendar-alt"></i> ${new Date().getFullYear()}</span>
-                            <span><i class="far fa-user"></i> <span data-en="${fullNameEn}" data-ar="${fullNameAr}">${fullNameEn}</span></span>
+                            <span><i class="far fa-calendar-alt"></i> 2026</span>
+                            <span><i class="far fa-user"></i> <span data-en="Dr. Hamouda" data-ar="د. حمودة">Dr. Hamouda</span></span>
                         </div>
                         <h3 class="blog-title">
-                            <a href="${baseUrl}/dr/${username}/articles/about.html" data-en="Professional Biography & Academic Dental Journey" data-ar="السيرة المهنية والمسيرة الأكاديمية للدكتور">Professional Biography & Academic Dental Journey</a>
+                            <a href="https://portfoliohubs.github.io/dr/hamouda/articles/about.html" data-en="Professional Biography & Academic Dental Journey" data-ar="السيرة المهنية والمسيرة الأكاديمية للدكتور">Professional Biography & Academic Dental Journey</a>
                         </h3>
-                        <p class="blog-excerpt" data-en="Academic background from ${universityEn}, continuous medical education, and clinical practice philosophies." data-ar="تفاصيل التخرج من ${universityAr}، الدورات التخصصية، والرؤية المهنية في تقديم أفضل علاج للمرضى.">Academic background from ${universityEn}, continuous medical education, and clinical practice philosophies.</p>
-                        <a href="${baseUrl}/dr/${username}/articles/about.html" class="blog-read-more">
+                        <p class="blog-excerpt" data-en="Academic background from Faculty of Dentistry, continuous medical education, and clinical practice philosophies." data-ar="تفاصيل التخرج من كلية طب الأسنان، الدورات التخصصية، والرؤية المهنية في تقديم أفضل علاج للمرضى.">Academic background from Faculty of Dentistry, continuous medical education, and clinical practice philosophies.</p>
+                        <a href="https://portfoliohubs.github.io/dr/hamouda/articles/about.html" class="blog-read-more">
                             <span data-en="Read Article" data-ar="قراءة المقال">Read Article</span>
                             <i class="fas fa-arrow-right"></i>
                         </a>
@@ -1654,61 +1520,52 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
             
             <div class="contact-container">
                 <div class="contact-methods" id="contactMethods">
-                    ${phone ? `
-                    <a href="tel:${phone}" class="contact-method">
+                    
+                    <a href="tel:+201000000000" class="contact-method">
                         <div class="contact-icon phone">
                             <i class="fas fa-phone-alt"></i>
                         </div>
                         <div class="contact-info">
                             <span class="contact-label" data-en="Phone Consultation" data-ar="الهاتف والاتصال المباشر">Phone Consultation</span>
-                            <span class="contact-value">${phone}</span>
+                            <span class="contact-value">+201000000000</span>
                         </div>
                     </a>
-                    ` : ''}
+                    
 
-                    ${whatsapp ? `
-                    <a href="https://wa.me/${cleanWhatsapp}" target="_blank" rel="noopener noreferrer" class="contact-method">
+                    
+                    <a href="https://wa.me/201000000000" target="_blank" rel="noopener noreferrer" class="contact-method">
                         <div class="contact-icon whatsapp">
                             <i class="fab fa-whatsapp"></i>
                         </div>
                         <div class="contact-info">
                             <span class="contact-label" data-en="WhatsApp Direct" data-ar="واتساب مباشر">WhatsApp Direct</span>
-                            <span class="contact-value">${whatsapp}</span>
+                            <span class="contact-value">+201000000000</span>
                         </div>
                     </a>
-                    ` : ''}
+                    
 
-                    ${email ? `
-                    <a href="mailto:${email}" class="contact-method">
+                    
+                    <a href="mailto:dr.hamouda@example.com" class="contact-method">
                         <div class="contact-icon email">
                             <i class="fas fa-envelope"></i>
                         </div>
                         <div class="contact-info">
                             <span class="contact-label" data-en="Official Email" data-ar="البريد الإلكتروني">Official Email</span>
-                            <span class="contact-value">${email}</span>
+                            <span class="contact-value">dr.hamouda@example.com</span>
                         </div>
                     </a>
-                    ` : ''}
+                    
                 </div>
                 
-                ${(doctor.instagram || doctor.facebook || doctor.linkedin) ? `
-                <div class="social-media">
-                    <h3 class="social-title" data-en="Follow on Social Networks" data-ar="متابعة الحسابات الرسمية">Follow on Social Networks</h3>
-                    <div class="social-links" id="socialLinks">
-                        ${doctor.instagram ? `<a href="${doctor.instagram.startsWith('http') ? doctor.instagram : 'https://instagram.com/' + doctor.instagram}" target="_blank" rel="noopener noreferrer" class="social-link instagram" aria-label="Instagram"><i class="fab fa-instagram"></i></a>` : ''}
-                        ${doctor.facebook ? `<a href="${doctor.facebook.startsWith('http') ? doctor.facebook : 'https://facebook.com/' + doctor.facebook}" target="_blank" rel="noopener noreferrer" class="social-link facebook" aria-label="Facebook"><i class="fab fa-facebook"></i></a>` : ''}
-                        ${doctor.linkedin ? `<a href="${doctor.linkedin.startsWith('http') ? doctor.linkedin : 'https://linkedin.com/in/' + doctor.linkedin}" target="_blank" rel="noopener noreferrer" class="social-link linkedin" aria-label="LinkedIn"><i class="fab fa-linkedin"></i></a>` : ''}
-                    </div>
-                </div>
-                ` : ''}
                 
-                ${addressAr || addressEn ? `
+                
+                
                 <div class="location-container" id="locationContainer">
                     <h3 class="location-title" data-en="Clinic Location" data-ar="موقع العيادة">Clinic Location</h3>
-                    <p class="location-address" data-en="${addressEn || addressAr}" data-ar="${addressAr || addressEn}">${addressEn || addressAr}</p>
+                    <p class="location-address" data-en="Cairo, Egypt" data-ar="القاهرة، مصر">Cairo, Egypt</p>
                     <div class="map-container">
                         <iframe 
-                            src="https://www.google.com/maps?q=${encodeURIComponent((doctor.clinicName || '') + ' ' + (addressAr || addressEn))}&hl=ar&z=14&output=embed"
+                            src="https://www.google.com/maps?q=Hamouda%20Dental%20Clinic%20%D8%A7%D9%84%D9%82%D8%A7%D9%87%D8%B1%D8%A9%D8%8C%20%D9%85%D8%B5%D8%B1&hl=ar&z=14&output=embed"
                             width="100%" 
                             height="280" 
                             style="border:0;" 
@@ -1718,7 +1575,7 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
                         </iframe>
                     </div>
                     <a 
-                        href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((doctor.clinicName || '') + ' ' + (addressAr || addressEn))}" 
+                        href="https://www.google.com/maps/search/?api=1&query=Hamouda%20Dental%20Clinic%20%D8%A7%D9%84%D9%82%D8%A7%D9%87%D8%B1%D8%A9%D8%8C%20%D9%85%D8%B5%D8%B1" 
                         target="_blank" 
                         rel="noopener noreferrer"
                         class="btn btn-secondary">
@@ -1726,7 +1583,7 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
                         <span data-en="Get Directions on Google Maps" data-ar="احصل على الاتجاهات عبر خرائط جوجل">Get Directions on Google Maps</span>
                     </a>
                 </div>
-                ` : ''}
+                
             </div>
         </section>
     </div>
@@ -1762,7 +1619,7 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
             </nav>
             
             <div class="footer-info">
-                <p>&copy; <span id="currentYear"></span> <span id="footerName" data-en="${fullNameEn}" data-ar="${fullNameAr}">${fullNameEn}</span>. <span id="rightsReserved" data-en="All medical credentials verified on PortfolioHubs." data-ar="جميع البيانات المهنية معتمدة عبر منصة PortfolioHubs.">All medical credentials verified on PortfolioHubs.</span></p>
+                <p>&copy; <span id="currentYear"></span> <span id="footerName" data-en="Dr. Hamouda" data-ar="د. حمودة">Dr. Hamouda</span>. <span id="rightsReserved" data-en="All medical credentials verified on PortfolioHubs." data-ar="جميع البيانات المهنية معتمدة عبر منصة PortfolioHubs.">All medical credentials verified on PortfolioHubs.</span></p>
             </div>
         </div>
     </footer>
@@ -1935,5 +1792,4 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl }) {
         <i class="fas fa-tooth"></i>
     </a>
 </body>
-</html>`;
-}
+</html>

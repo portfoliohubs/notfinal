@@ -54,9 +54,13 @@ app.post('/api/admin/generate-doctor-html', async (req: Request, res: Response) 
     };
 
     // 1. Generate full static HTML using doctor-template.mjs
+    // Ensure cases array is properly passed
+    const casesArray = Array.isArray(cases) && cases.length > 0 ? cases : [];
+    console.log(`🔨 Generating HTML for ${cleanSlug} with ${casesArray.length} cases`);
+    
     const doctorHtml = buildDoctorStaticHtml({
       doctor: doctorObj,
-      cases: Array.isArray(cases) && cases.length > 0 ? cases : (doctorObj.cases || []),
+      cases: casesArray,
       baseUrl: BASE_URL
     });
 
@@ -98,7 +102,8 @@ app.post('/api/admin/generate-doctor-html', async (req: Request, res: Response) 
         const articleHtml = buildArticleStaticHtml({
           doctor: doctorObj,
           angleKey: angle,
-          baseUrl: BASE_URL
+          baseUrl: BASE_URL,
+          cases: casesArray // Pass cases data to article generation as well
         });
 
         const fileNames = {
