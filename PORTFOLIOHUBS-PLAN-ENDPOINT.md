@@ -504,3 +504,213 @@ For Firebase validation, use the project-approved Firebase CLI/emulator workflow
 - Do not remove legacy media fields until backfill and rollback are verified.
 - Do not expose credentials, tokens, or production data in this file.
 - Keep this endpoint current after every major implementation or validation step.
+
+## GitHub Pages trial checkpoint — 2026-09-24
+
+The active validation repository is `https://github.com/portfoliohubs/updateversion5`.
+The deployed trial URL is `https://portfoliohubs.github.io/updateversion5/`.
+The production repository `portfoliohubs/portfoliohubs.github.io` must not be
+changed until the trial release gates below are completed and signed off.
+
+### Verified in the trial
+
+- [x] Vite project-base support uses `VITE_BASE_PATH=/updateversion5/`.
+- [x] Wouter routes use the Vite base path.
+- [x] Static asset, manifest, and Service Worker URLs work under the project path.
+- [x] GitHub Actions build and Pages deployment succeeded in run `35996131229`.
+- [x] Linux-compatible build script uses `npm run`, not `npm.cmd`.
+- [x] Home page renders at the public GitHub Pages trial URL.
+- [ ] Firebase sign-in/sign-up on the GitHub Pages domain.
+- [ ] Firebase Authorized Domain contains `portfoliohubs.github.io`.
+- [ ] Website profile read/write and published doctor route.
+- [ ] Worker-authenticated ImageKit upload from the trial domain.
+- [ ] Admin synchronization, approval, settings, and dark-mode readability.
+- [ ] Mobile, tablet, RTL, reduced-motion, and offline/service-worker checks.
+
+## New requested product changes
+
+These are requirements for the next implementation cycle, not yet marked
+complete:
+
+1. Home service copy:
+   - `website in Google & AI Search`
+   - `Professional fo free • appearing in Google search & AI tools answers as ChatGPT`
+   - `Professional Portfolio and CV PDF Maker for free`
+   - `Easy • Free • No account needed`
+   - Section heading: `PortfolioHubs Smika services`
+2. Home live examples must link to the final host family
+   `https://portfoliohubs.github.io/dr<slug>` during the root-domain production
+   release, while the trial must use
+   `https://portfoliohubs.github.io/updateversion5/dr<slug>`. Links must be
+   generated from one environment-aware helper, not hard-coded in each record.
+3. The chatbot must render its launcher immediately on initial page load. Auth
+   may control protected conversation features, but authentication must not
+   delay or hide the launcher.
+4. Admin dark mode needs a complete contrast pass for page background, cards,
+   tables, inputs, dropdowns, modals, badges, muted text, status colors, focus
+   rings, and icon buttons.
+5. `Micky plan.docx` must be audited against the current implementation. Every
+   requirement must be classified as complete, partial, blocked, or not started,
+   with a linked implementation task and acceptance test.
+
+## Execution plan before production repository transfer
+
+### Stage 0 — Continuity and baseline
+
+- [ ] Update this endpoint after every meaningful change with date, commit,
+  validation command, result, and next action.
+- [ ] Keep all work in `updateversion5`; do not push to
+  `portfoliohubs/portfoliohubs.github.io`.
+- [ ] Record manual settings: Pages source, Firebase secrets, Authorized Domains,
+  and Worker URL.
+- [ ] Establish a clean baseline with lint, build, home-page smoke test, and
+  direct-route smoke test.
+
+Acceptance: a future session can continue from this file without relying on
+conversation history.
+
+### Stage 1 — Home copy and environment-aware public links
+
+- [ ] Update home labels in `src/config.ts` and the services heading in
+  `src/pages/HomePage.tsx`.
+- [ ] Add one public-site URL helper based on `import.meta.env.BASE_URL`.
+- [ ] Update live examples, canonical metadata, sitemap, robots, security.txt,
+  docs, and generated templates to avoid stale `portfoliohubs.pages.dev` links.
+- [ ] Preserve a deliberate compatibility policy for existing Cloudflare URLs.
+- [ ] Test links in both trial (`/updateversion5/`) and root-domain (`/`) modes.
+
+Acceptance: every live example opens the correct GitHub Pages doctor route and
+no user-facing source path points to the retired host unless documented.
+
+### Stage 2 — Immediate chatbot launcher
+
+- [ ] Remove auth-listener dependency from launcher visibility.
+- [ ] Keep auth state only for protected answers/actions.
+- [ ] Use an eagerly loaded launcher shell or preload strategy while keeping the
+  heavier conversation panel lazy if needed.
+- [ ] Preserve context detection, unread state, focus behavior, and accessibility.
+- [ ] Test cold load, anonymous/authenticated users, slow network, mobile, and
+  reduced-motion mode.
+
+Acceptance: the launcher is visible during the initial usable page render and
+opening it never displays an invalid empty response.
+
+### Stage 3 — Admin dark-mode contrast system
+
+- [ ] Inventory AdminDashboard hard-coded light-only colors.
+- [ ] Replace unsafe colors with semantic theme tokens.
+- [ ] Fix table rows, controls, modals, overlays, badges, alerts, charts,
+  empty/loading/error states, and action buttons in both themes.
+- [ ] Verify keyboard focus and WCAG AA contrast for normal and muted text.
+- [ ] Test every admin tab manually in both themes.
+
+Acceptance: no foreground/background pair becomes unreadable in light or dark
+mode, including pending, approved, rejected, error, and disabled states.
+
+### Stage 4 — Original plan audit and premium visual direction
+
+- [ ] Complete the `Micky plan.docx` requirement matrix.
+- [ ] Separate functional requirements from visual direction and record evidence.
+- [ ] Review the two design references named in the document and extract
+  principles without copying protected artwork or text.
+- [ ] Define typography, whitespace, surface depth, motion, responsive grids,
+  RTL behavior, premium hero treatment, and component states.
+- [ ] Implement visual changes in home, auth, wizard, public doctor page, and
+  admin surfaces with desktop/tablet/mobile checks.
+- [ ] Cover light, dark, Arabic, English, loading, empty, and error states.
+
+Acceptance: every document requirement has an owner file, implementation
+status, and reproducible acceptance test.
+
+### Stage 5 — Data and architecture consistency
+
+- [ ] Resolve the conflict between Firebase Firestore as the latest requested
+  Website data store and Cloudflare D1 as the current active store.
+- [ ] Choose one authoritative store for Website/profile/case/admin data.
+- [ ] If Firestore is authoritative, migrate all reads/writes and admin
+  synchronization consistently.
+- [ ] If D1 remains authoritative, update the architecture documentation and
+  keep Firebase limited to Auth.
+- [ ] Keep the ImageKit private key only in the Worker secret.
+
+Acceptance: registration, dashboard editing, publishing, public doctor pages,
+case media, promo redemption, and admin actions use one documented source of
+truth.
+
+### Stage 6 — End-to-end trial QA
+
+- [ ] Configure Firebase Authorized Domains.
+- [ ] Test sign-up, sign-in, sign-out, token refresh, duplicate email, and
+  unauthorized dashboard/admin access.
+- [ ] Test profile save, portfolio save, slug collision, publish/unpublish,
+  public doctor route, and refresh/deep-link behavior.
+- [ ] Test ImageKit diagnostics, successful upload, timeout, invalid token, and
+  retry/error messaging.
+- [ ] Test admin synchronization, approval/rejection, settings, promos, blogs,
+  and dark mode.
+- [ ] Test CV generation/ad timing, Service Worker cache, offline fallback, and
+  project-path scope.
+- [ ] Record the exact successful GitHub Actions run and browser smoke results.
+
+Acceptance: all critical flows pass on the trial URL with no application-caused
+console errors.
+
+### Stage 7 — Production transfer gate
+
+- [ ] Freeze the trial commit and record its SHA here.
+- [ ] Copy only validated source/workflow changes to
+  `portfoliohubs/portfoliohubs.github.io`.
+- [ ] Change `VITE_BASE_PATH` to `/` and verify generated URLs.
+- [ ] Configure production Pages settings and Firebase Authorized Domains.
+- [ ] Run a fresh production build/deploy and repeat critical smoke tests.
+- [ ] Keep the trial repository as a rollback reference.
+
+Acceptance: production transfer occurs only after Stage 6 passes and the
+data-store decision is documented.
+
+## Continuation log
+
+| Date | Commit / run | Change | Validation | Next action |
+|---|---|---|---|---|
+| 2026-09-24 | `0a07db5`, Actions `35996131229` | Fixed Linux GitHub Actions build and deployed trial | Lint/build/Pages deployment passed; home URL renders | Execute Stages 1–3, then complete the `Micky plan.docx` audit |
+
+## Original document audit summary — 2026-09-24
+
+The audit of [Micky plan.docx](./Micky%20plan.docx) found these important
+gaps. They are included here so quota/session continuation does not lose the
+original requirements:
+
+- **CV download advertisement:** poster, five-second countdown, skip behavior,
+  accessibility, and final-download-only behavior still need an explicit
+  implementation/decision.
+- **Authentication:** service scope is only partially defined; duplicate-account
+  behavior, existing-user sign-in, and DSD service isolation need a documented
+  product decision and tests.
+- **Media:** ImageKit migration is operational, but 100-image stress testing,
+  partial-failure cleanup/retry, and measurable image-quality acceptance criteria
+  are not complete.
+- **Promo/case limits:** the authoritative source and server-side race/tamper
+  tests still need to be fixed and verified.
+- **SEO/GEO:** `sameAs` official profiles, final sitemap/canonical host,
+  Bing Webmaster verification, IndexNow, and removal of stale demo/test wording
+  need completion.
+- **Static public pages:** generated doctor HTML, slug-not-found behavior,
+  refresh/deep-link handling, and post-publication sitemap updates need a
+  production-shaped test.
+- **Design:** the current interface has a partial visual system, but not the
+  complete premium Apple/Dala direction from the document: typography, spacing,
+  void/iris/saffron palette, low-card-density hierarchy, CTA consistency,
+  signature visual, motion system, and RTL polish.
+- **Quality:** keyboard-only, screen-reader, contrast, reduced-motion,
+  responsive breakpoints, loading/empty/error states, and end-to-end route
+  coverage remain release work.
+
+### Decisions required before marking the audit complete
+
+1. Treat the CV advertisement as an intentional exception to the “do not alter
+   CV generation” requirement, or explicitly remove it from scope.
+2. Define whether DSD authentication means a logical service scope or separate
+   accounts/data domains.
+3. Define image quality in measurable terms instead of the subjective “8/10”.
+4. Select Firestore or D1 as the single Website/profile/case/admin source of
+   truth; do not operate with an undocumented hybrid.
