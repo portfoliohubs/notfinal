@@ -15,9 +15,28 @@ import { getServiceById } from './services';
 import PlatformPage from './pages/PlatformPage';
 import ContextAwareChatbot from './components/ContextAwareChatbot';
 
-export default function App() {
+function getDynamicRouterBase(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const pathSegments = window.location.pathname.split('/').filter(Boolean);
+  const knownRoutes = new Set([
+    'login', 'dashboard', 'admin', 'website', 'portfolio', 'cv',
+    'dsd-students', 'professional-dsd', 'blog', 'docs', 'about',
+    'pricing', 'contact', 'privacy', 'terms', 'changelog', 'status', 'dr'
+  ]);
+
+  if (pathSegments.length > 0 && !knownRoutes.has(pathSegments[0]) && !pathSegments[0].startsWith('dr')) {
+    return `/${pathSegments[0]}`;
+  }
+
   const rawBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : '/';
-  const base = rawBase && rawBase !== '/' ? rawBase.replace(/\/$/, '') : undefined;
+  if (rawBase && rawBase !== '/' && rawBase !== './') {
+    return rawBase.replace(/\/$/, '');
+  }
+  return undefined;
+}
+
+export default function App() {
+  const base = getDynamicRouterBase();
 
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
