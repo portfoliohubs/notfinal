@@ -527,6 +527,26 @@ changed until the trial release gates below are completed and signed off.
 - [ ] Admin synchronization, approval, settings, and dark-mode readability.
 - [ ] Mobile, tablet, RTL, reduced-motion, and offline/service-worker checks.
 
+### Implementation update — 2026-09-24
+
+- [x] Updated homepage service copy and renamed the services section to
+  `PortfolioHubs Smika services`.
+- [x] Replaced hard-coded homepage example hosts with the environment-aware
+  `src/lib/publicSiteUrl.ts` helper. Trial links now resolve under
+  `/updateversion5/`; root production will resolve under `/`.
+- [x] Chatbot launcher is no longer hidden while Firebase authentication is
+  loading or absent. Authentication remains available for personalization and
+  protected actions.
+- [x] Added scoped dark-mode contrast overrides for AdminDashboard cards,
+  surfaces, borders, text, controls, and muted states.
+- [ ] Complete visual browser verification of every AdminDashboard tab in both
+  themes.
+
+Validation completed: `npm.cmd run lint` passed; `npm.cmd run build` passed and
+generated 0 static doctor pages because no publishable export records exist in
+the trial checkout. The build warnings are the pre-existing Vite native-loader
+and large-chunk warnings, not failures.
+
 ## New requested product changes
 
 These are requirements for the next implementation cycle, not yet marked

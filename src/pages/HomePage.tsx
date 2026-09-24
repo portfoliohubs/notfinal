@@ -6,6 +6,7 @@ import Header from '../components/Header';
 import CONFIG from '../config';
 import { gtagEvent } from '../lib/gtag';
 import { SERVICES } from '../services';
+import { publicDoctorUrl } from '../lib/publicSiteUrl';
 
 const localExamplePhotos = [
   '/examples/dr-michael-nabil.jpg',
@@ -135,7 +136,7 @@ export default function HomePage() {
 
         <section className="w-full max-w-2xl mb-10" aria-labelledby="services-heading">
           <h2 id="services-heading" className="mb-4 text-center text-lg font-bold text-foreground">
-            PortfolioHubs services
+            PortfolioHubs Smika services
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {SERVICES.filter((service) => service.id !== 'cv' && service.id !== 'website').map((service) => (
@@ -191,7 +192,7 @@ export default function HomePage() {
                   return (
                     <a
                       key={i}
-                      href={ex.link}
+                      href={publicDoctorUrl(ex.link)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex flex-col items-center gap-2 group w-20"

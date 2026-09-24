@@ -316,11 +316,6 @@ export default function ContextAwareChatbot() {
     }
   };
 
-  // Only render for authenticated users (as specified in requirements)
-  if (!currentUser) {
-    return null;
-  }
-
   return (
     <>
       {/* ── Floating Launcher Bubble (Hotmart style in PortfolioHubs Teal) ── */}

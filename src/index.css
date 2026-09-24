@@ -156,6 +156,49 @@
   .pill-button:hover {
     transform: translateY(-1px);
   }
+
+  .dark .admin-dashboard .bg-white,
+  .dark .admin-dashboard .bg-gray-50 {
+    background-color: var(--card) !important;
+  }
+
+  .dark .admin-dashboard .bg-slate-50 {
+    background-color: var(--background) !important;
+  }
+
+  .dark .admin-dashboard .bg-slate-100,
+  .dark .admin-dashboard .hover\:bg-slate-100:hover,
+  .dark .admin-dashboard .hover\:bg-slate-200:hover {
+    background-color: var(--muted) !important;
+  }
+
+  .dark .admin-dashboard .border-slate-100,
+  .dark .admin-dashboard .border-slate-200,
+  .dark .admin-dashboard .border-slate-300,
+  .dark .admin-dashboard .border-gray-200 {
+    border-color: var(--border) !important;
+  }
+
+  .dark .admin-dashboard .text-slate-900,
+  .dark .admin-dashboard .text-slate-800,
+  .dark .admin-dashboard .text-slate-700 {
+    color: var(--foreground) !important;
+  }
+
+  .dark .admin-dashboard .text-slate-600,
+  .dark .admin-dashboard .text-slate-500,
+  .dark .admin-dashboard .text-gray-500,
+  .dark .admin-dashboard .text-gray-600 {
+    color: var(--muted-foreground) !important;
+  }
+
+  .dark .admin-dashboard input,
+  .dark .admin-dashboard textarea,
+  .dark .admin-dashboard select {
+    background-color: var(--card) !important;
+    border-color: var(--border) !important;
+    color: var(--foreground) !important;
+  }
 }
 
 .font-almarai {

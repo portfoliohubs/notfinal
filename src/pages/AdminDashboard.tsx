@@ -902,7 +902,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 dark:text-slate-100 flex flex-col font-sans transition-colors" dir="rtl">
+    <div className="admin-dashboard min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors" dir="rtl">
       {/* Top Navbar */}
       <Header />
 
