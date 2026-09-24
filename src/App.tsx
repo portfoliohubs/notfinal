@@ -1,4 +1,3 @@
-import { lazy, Suspense } from 'react';
 import { Route, Router, Switch } from 'wouter';
 import { ThemeProvider } from './components/ThemeProvider';
 import HomePage from './pages/HomePage';
@@ -14,8 +13,7 @@ import ComingSoonService from './pages/ComingSoonService';
 import PublicWebsite from './pages/PublicWebsite';
 import { getServiceById } from './services';
 import PlatformPage from './pages/PlatformPage';
-
-const ContextAwareChatbot = lazy(() => import('./components/ContextAwareChatbot'));
+import ContextAwareChatbot from './components/ContextAwareChatbot';
 
 export default function App() {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -56,9 +54,7 @@ export default function App() {
       </Router>
 
       {/* Lazy-loaded Hotmart-style Context-Aware Chatbot (appears across pages after auth) */}
-      <Suspense fallback={null}>
-        <ContextAwareChatbot />
-      </Suspense>
+      <ContextAwareChatbot />
     </ThemeProvider>
   );
 }
