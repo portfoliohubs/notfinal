@@ -300,7 +300,7 @@ const ARTICLE_TEMPLATES = {
 // ==========================================
 // 5. Article HTML Builder (Unique SEO Pages)
 // ==========================================
-export function buildArticleStaticHtml({ doctor, angleKey, baseUrl, cases = [] }) {
+export function buildArticleStaticHtml({ doctor, angleKey, baseUrl }) {
   const username = doctor.username || doctor.slug || slugify(doctor.fullName || 'doctor');
   const doctorUrl = `${baseUrl}/dr/${username}/`;
   const citySlug = slugify(doctor.locationAddress || doctor.locationAddressAr || 'city');
@@ -941,7 +941,7 @@ async function runStaticGeneration() {
 
         const angles = ['about', 'cases', 'local', 'guide'];
         for (const angle of angles) {
-          const articleHtml = buildArticleStaticHtml({ doctor, angleKey: angle, baseUrl, cases });
+          const articleHtml = buildArticleStaticHtml({ doctor, angleKey: angle, baseUrl });
           const fileName = angle === 'local' ? `dentist-in-${citySlug}.html` : (angle === 'about' ? 'about.html' : (angle === 'cases' ? 'clinical-cases.html' : 'patient-guide.html'));
           fs.writeFileSync(path.join(articlesDir, fileName), articleHtml, 'utf-8');
           generatedArticlesCount++;

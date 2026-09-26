@@ -1,5 +1,7 @@
-const CACHE_NAME = 'portfoliohubs-cache-v3';
-const STATIC_ASSETS = [
+const CACHE_NAME = 'portfoliohubs-cache-v2';
+const ASSETS_TO_CACHE = [
+  '/',
+  './index.html',
   './manifest.webmanifest',
   './logo.png',
   './robots.txt'
@@ -8,7 +10,7 @@ const STATIC_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch((err) => {
+      return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
         console.warn('SW pre-cache non-fatal error:', err);
       });
     })
@@ -29,58 +31,49 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-
+  
   // Skip cross-origin or chrome-extension or analytics requests
   if (!event.request.url.startsWith(self.location.origin)) {
     return;
   }
 
-  const url = new URL(event.request.url);
-
-  // Always fetch fresh HTML on navigation (Network-First) to avoid stale JS chunk hash 404s
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return networkResponse;
-        })
-        .catch(() => {
-          // Offline fallback
-          return caches.match(event.request).then((cached) => {
-            if (cached) return cached;
-            return caches.match('./index.html').then((fallback) => fallback || new Response('', {
-              status: 503,
-              statusText: 'Offline',
-            }));
-          });
-        })
-    );
+  // Never let a stale/offline cache layer hide authenticated application errors.
+  if (event.request.mode === 'navigate' && new URL(event.request.url).pathname.startsWith('/admin')) {
+    event.respondWith(fetch(event.request));
     return;
   }
 
-  // For static assets (JS, CSS, images, fonts), stale-while-revalidate or cache-first
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return networkResponse;
-      }).catch(() => null);
-
       if (cachedResponse) {
+        // Fetch in background to update cache (stale-while-revalidate)
+        fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, networkResponse.clone());
+            });
+          }
+        }).catch(() => {});
         return cachedResponse;
       }
 
-      return fetchPromise.then((res) => {
-        if (res) return res;
+      return fetch(event.request).then((networkResponse) => {
+        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+          return networkResponse;
+        }
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseToCache);
+        });
+        return networkResponse;
+      }).catch(() => {
+        // Offline fallback for navigation
+        if (event.request.mode === 'navigate') {
+          return caches.match('./index.html').then((fallback) => fallback || new Response('', {
+            status: 503,
+            statusText: 'Offline',
+          }));
+        }
         return new Response('', { status: 503, statusText: 'Network unavailable' });
       });
     })

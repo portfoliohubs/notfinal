@@ -282,17 +282,6 @@ export default function ContextAwareChatbot() {
     { label: 'تثبيت التطبيق على الموبايل', query: 'تثبيت منصة PortfolioHubs كتطبيق على هاتفك وحاسوبك' }
   ];
 
-  // NEVER render chatbot on public doctor portfolio pages or external doctor sites
-  const isDoctorRoute = location.startsWith('/dr') || 
-    (typeof window !== 'undefined' && (
-      window.location.pathname.startsWith('/dr') ||
-      window.location.pathname.includes('/drmichaelnabil')
-    ));
-
-  if (isDoctorRoute) {
-    return null;
-  }
-
   return (
     <>
       {/* ── Floating Launcher Bubble ── */}

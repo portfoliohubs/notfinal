@@ -62,7 +62,6 @@ import {
   Tag
 } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
-import { publicDoctorUrl } from '../lib/publicSiteUrl';
 import Header from '../components/Header';
 import { INITIAL_BLOG_ARTICLES, BLOG_CATEGORIES, BlogArticle } from '../data/blogArticlesData';
 import CONFIG from '../config';
@@ -71,7 +70,6 @@ import { cloudflareApi } from '../lib/cloudflareApiClient';
 
 interface PortfolioRecord {
   id: string;
-  uid?: string;
   slug?: string;
   username?: string;
   fullName: string;
@@ -89,7 +87,6 @@ interface PortfolioRecord {
   active?: boolean;
   hasUnreviewedChanges?: boolean;
   adminNotes?: string;
-  rejectionReason?: string | null;
   profilePhoto?: string;
   profilePhotoPath?: string;
   profilePreview?: string;
@@ -112,7 +109,6 @@ interface PortfolioRecord {
   bioAr?: string;
   createdAt?: string;
   publishedAt?: string;
-  updatedAt?: string;
 }
 
 interface GlobalSettings {
@@ -168,7 +164,7 @@ export default function AdminDashboard() {
     upgradeWhatsAppNumber: '201271476215',
     maintenanceMode: false,
     autoSeoArticlesEnabled: true,
-    baseUrl: typeof window !== 'undefined' ? window.location.origin : 'https://portfoliohubs.github.io'
+    baseUrl: 'https://portfoliohubs.pages.dev'
   });
   const [savingSettings, setSavingSettings] = useState(false);
   const [uploadingCvPoster, setUploadingCvPoster] = useState(false);
@@ -330,63 +326,18 @@ export default function AdminDashboard() {
       }
 
       try {
-        let loadedList: PortfolioRecord[] = [];
-        try {
-          const apiDoctors = await cloudflareApi.getAdminDoctors();
-          if (Array.isArray(apiDoctors) && apiDoctors.length > 0) {
-            loadedList = apiDoctors.map((data) => ({
-              ...data,
-              id: data.id,
-              caseCount: data.caseCount || 0,
-              cases: data.cases || [],
-              status: data.status || 'pending_review',
-              active: data.active !== false,
-            } as PortfolioRecord));
-          }
-        } catch (apiErr) {
-          console.warn('[AdminDashboard] Could not read D1 doctors, falling back to Firestore:', apiErr);
-        }
-
-        // If D1 returned empty or failed, load from Firestore portfolios or users
-        if (loadedList.length === 0) {
-          try {
-            const fsSnap = await getDocs(collection(db, 'portfolios'));
-            if (!fsSnap.empty) {
-              loadedList = fsSnap.docs.map((d) => {
-                const data = d.data();
-                return {
-                  id: d.id,
-                  ...data,
-                  status: data.status || 'pending_review',
-                  active: data.active !== false,
-                  caseCount: data.caseCount || (data.cases ? data.cases.length : 0),
-                  cases: data.cases || []
-                } as PortfolioRecord;
-              });
-            } else {
-              const usersSnap = await getDocs(collection(db, 'users'));
-              loadedList = usersSnap.docs
-                .filter((d) => !d.data().isAdmin)
-                .map((d) => {
-                  const data = d.data();
-                  return {
-                    id: d.id,
-                    fullName: (data.fullName as string) || (data.name as string) || 'Doctor',
-                    ...data,
-                    status: data.status || 'pending_review',
-                    active: data.active !== false,
-                    caseCount: data.caseCount || 0,
-                    cases: [],
-                  } as PortfolioRecord;
-                });
-            }
-          } catch (fsErr) {
-            console.warn('[AdminDashboard] Firestore fallback error:', fsErr);
-          }
-        }
-        setDoctors(loadedList);
+        const apiDoctors = await cloudflareApi.getAdminDoctors();
+        setDoctors(apiDoctors.map((data) => ({
+          ...data,
+          id: data.id,
+          caseCount: data.caseCount || 0,
+          cases: data.cases || [],
+          status: data.status || 'pending_review',
+          active: data.active !== false,
+        } as PortfolioRecord)));
       } catch (err) {
-        console.error('[AdminDashboard] Could not read doctors:', err);
+        console.error('[AdminDashboard] Could not read D1 doctors:', err);
+        throw err;
       }
       setDoctors(prev => [...prev].sort((a, b) => {
         if (a.status === 'pending_review' && b.status !== 'pending_review') return -1;
@@ -552,34 +503,14 @@ export default function AdminDashboard() {
     };
   }, [doctors]);
 
-  const getDoctorPublicUrl = (doctor: PortfolioRecord) => {
-    return publicDoctorUrl(doctor);
-  };
-
   // 5. Action: Toggle Suspend / Activate Account
   const handleToggleAccountActive = async (doctor: PortfolioRecord) => {
     const newActiveState = !(doctor.active !== false);
-    const nowIso = new Date().toISOString();
     try {
-      const mergedDoctor = { ...doctor, active: newActiveState, updatedAt: nowIso };
       await updateDoc(doc(db, 'users', doctor.id), {
         active: newActiveState,
-        updatedAt: nowIso
+        updatedAt: new Date().toISOString()
       });
-      try {
-        await updateDoc(doc(db, 'portfolios', doctor.id), {
-          active: newActiveState,
-          updatedAt: nowIso
-        });
-      } catch (pErr) {
-        console.warn('portfolios updateDoc warning:', pErr);
-      }
-      try {
-        await cloudflareApi.saveProfile(mergedDoctor, doctor.id);
-        await cloudflareApi.savePortfolio(mergedDoctor, doctor.id);
-      } catch (cfErr) {
-        console.warn('cloudflareApi saveProfile warning:', cfErr);
-      }
 
       setDoctors(prev => prev.map(d => d.id === doctor.id ? { ...d, active: newActiveState } : d));
       setStatusMessage({
@@ -598,14 +529,8 @@ export default function AdminDashboard() {
 
     try {
       const nowIso = new Date().toISOString();
-      const rawBase = (doctor.slug || doctor.username || doctor.fullName || doctor.id || 'doctor')
-        .toString()
-        .trim()
-        .toLowerCase()
-        .replace(/^dr-?/, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'doctor';
-      const derivedSlug = rawBase;
+      const baseSlug = doctor.slug || doctor.username || (doctor.fullName ? doctor.fullName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : doctor.id);
+      const derivedSlug = baseSlug || doctor.id;
 
       // Reserve the public slug atomically before publishing any records.
       // This prevents two administrators from publishing different doctors at
@@ -623,11 +548,9 @@ export default function AdminDashboard() {
         }, { merge: true });
       });
 
-      // Construct the FULL merged doctor record so NO data is lost on approval
-      const fullApprovedDoctor: PortfolioRecord = {
-        ...doctor,
-        uid: doctor.id,
-        status: 'published' as const,
+      // 1. Update Firestore User Document
+      await setDoc(doc(db, 'users', doctor.id), {
+        status: 'published',
         active: true,
         slug: derivedSlug,
         username: derivedSlug,
@@ -636,24 +559,33 @@ export default function AdminDashboard() {
         adminNotes: '',
         rejectionReason: null,
         updatedAt: nowIso
-      };
-
-      // 1. Update Firestore User Document with FULL merged record
-      await setDoc(doc(db, 'users', doctor.id), fullApprovedDoctor, { merge: true });
+      }, { merge: true });
 
       // Mirror to portfolios collection
       try {
-        await setDoc(doc(db, 'portfolios', doctor.id), fullApprovedDoctor, { merge: true });
+        await setDoc(doc(db, 'portfolios', doctor.id), {
+          status: 'published',
+          active: true,
+          slug: derivedSlug,
+          username: derivedSlug,
+          hasUnreviewedChanges: false,
+          publishedAt: nowIso,
+          updatedAt: nowIso
+        }, { merge: true });
       } catch (pErr) {
         console.warn('Mirror portfolios update error:', pErr);
       }
 
-      // Mirror to published_portfolios collection
-      try {
-        await setDoc(doc(db, 'published_portfolios', doctor.id), fullApprovedDoctor, { merge: true });
-      } catch (pErr) {
-        console.warn('Mirror published_portfolios error:', pErr);
-      }
+      await setDoc(doc(db, 'published_portfolios', doctor.id), {
+        ...doctor,
+        uid: doctor.id,
+        status: 'published',
+        active: true,
+        slug: derivedSlug,
+        username: derivedSlug,
+        publishedAt: nowIso,
+        updatedAt: nowIso,
+      }, { merge: true });
 
       // 2. Update Publication Document
       await setDoc(doc(db, 'publications', doctor.id), {
@@ -666,50 +598,25 @@ export default function AdminDashboard() {
         updatedAt: nowIso
       }, { merge: true });
 
-      // Mirror approval to Cloudflare D1 API with full merged record
-      try {
-        await cloudflareApi.saveProfile(fullApprovedDoctor, doctor.id);
-        await cloudflareApi.savePortfolio(fullApprovedDoctor, doctor.id);
-        try {
-          await cloudflareApi.publish(derivedSlug);
-        } catch (pubErr) {
-          console.warn('[AdminDashboard] Cloudflare API publish warning:', pubErr);
-        }
-      } catch (cfErr) {
-        console.warn('[AdminDashboard] Cloudflare mirror approve warning:', cfErr);
-      }
+      // 3. Register Slug in Slugs Registry
+      // Update Local State
+      setDoctors(prev => prev.map(d => d.id === doctor.id ? {
+        ...d,
+        status: 'published',
+        active: true,
+        hasUnreviewedChanges: false,
+        publishedAt: nowIso
+      } : d));
 
-      // Update Local State with FULL merged record
-      setDoctors(prev => prev.map(d => d.id === doctor.id ? fullApprovedDoctor : d));
-
-      // 4. Fetch real cases from Firebase subcollection before HTML generation
-      let realCases = [];
-      try {
-        const casesSnap = await getDocs(collection(db, 'users', doctor.id, 'cases'));
-        if (!casesSnap.empty) {
-          realCases = casesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-          realCases.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-          console.log(`📋 Fetched ${realCases.length} real cases from Firebase subcollection for ${doctor.fullName || doctor.fullNameAr}`);
-        }
-      } catch (casesErr) {
-        console.warn('Could not fetch cases subcollection:', casesErr);
-      }
-
-      // Fallback to document cases if subcollection is empty
-      if (realCases.length === 0 && Array.isArray(doctor.cases) && doctor.cases.length > 0) {
-        realCases = doctor.cases;
-        console.log(`📋 Using ${realCases.length} cases from doctor document as fallback`);
-      }
-
-      // 5. Trigger Real Static HTML Generation on Server
+      // 4. Trigger Real Static HTML Generation on Server
       let serverGenSuccess = false;
       try {
         const genRes = await fetch('/api/admin/generate-doctor-html', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            doctor: fullApprovedDoctor,
-            cases: realCases
+            doctor: { ...doctor, slug: derivedSlug, username: derivedSlug },
+            cases: doctor.cases || []
           })
         });
         if (genRes.ok) {
@@ -739,7 +646,7 @@ export default function AdminDashboard() {
       } else if (!ghPat.trim()) {
         setStatusMessage({
           type: 'success',
-          text: `✅ تم اعتماد بورتفوليو د. ${doctor.fullName || doctor.fullNameAr} بنجاح في قاعدة البيانات وجاري حفظ الصفحات الثابتة: /dr/${derivedSlug}`
+          text: `✅ تم اعتماد بورتفوليو د. ${doctor.fullName || doctor.fullNameAr} بنجاح في قاعدة البيانات وجاري حفظ الصفحات الثابتة.`
         });
       } else if (!ghResult.ok) {
         setStatusMessage({
@@ -775,16 +682,6 @@ export default function AdminDashboard() {
 
     try {
       const nowIso = new Date().toISOString();
-      const existingDoc = doctors.find(d => d.id === rejectDoctorId);
-      const mergedReject = {
-        ...(existingDoc || {}),
-        status: 'rejected' as const,
-        hasUnreviewedChanges: false,
-        adminNotes: rejectNotes,
-        rejectionReason: rejectNotes,
-        updatedAt: nowIso
-      };
-
       await updateDoc(doc(db, 'users', rejectDoctorId), {
         status: 'rejected',
         hasUnreviewedChanges: false,
@@ -799,19 +696,6 @@ export default function AdminDashboard() {
         adminNotes: rejectNotes,
         updatedAt: nowIso
       }, { merge: true });
-
-      try {
-        await setDoc(doc(db, 'portfolios', rejectDoctorId), mergedReject, { merge: true });
-      } catch (pErr) {
-        console.warn('portfolios rejectDoc warning:', pErr);
-      }
-
-      try {
-        await cloudflareApi.saveProfile(mergedReject, rejectDoctorId);
-        await cloudflareApi.savePortfolio(mergedReject, rejectDoctorId);
-      } catch (cfErr) {
-        console.warn('cloudflareApi rejectDoctor warning:', cfErr);
-      }
 
       setDoctors(prev => prev.map(d => d.id === rejectDoctorId ? {
         ...d,
@@ -837,18 +721,11 @@ export default function AdminDashboard() {
   const handleSaveGlobalSettings = async () => {
     setSavingSettings(true);
     try {
-      const nowIso = new Date().toISOString();
       await setDoc(doc(db, 'settings', 'global'), {
         ...globalSettings,
-        updatedAt: nowIso,
+        updatedAt: new Date().toISOString(),
         updatedBy: adminUser?.email || 'admin'
       }, { merge: true });
-
-      try {
-        await cloudflareApi.saveSettings('global', globalSettings as unknown as Record<string, unknown>);
-      } catch (cfErr) {
-        console.warn('[AdminDashboard] Cloudflare saveSettings warning:', cfErr);
-      }
 
       setStatusMessage({
         type: 'success',
@@ -866,29 +743,15 @@ export default function AdminDashboard() {
     if (!normalizedCode) return;
     setSavingPromo(true);
     try {
-      const nowIso = new Date().toISOString();
       await setDoc(doc(db, 'promo_codes', normalizedCode), {
         code: normalizedCode,
         caseLimit: Math.max(3, promoCaseLimit),
         maxRedemptions: Math.max(1, promoMaxRedemptions),
         redeemedCount: 0,
         active: true,
-        updatedAt: nowIso,
+        updatedAt: new Date().toISOString(),
         updatedBy: adminUser?.email || 'admin',
       });
-
-      try {
-        await cloudflareApi.savePromoCode(normalizedCode, {
-          code: normalizedCode,
-          caseLimit: Math.max(3, promoCaseLimit),
-          maxRedemptions: Math.max(1, promoMaxRedemptions),
-          redeemedCount: 0,
-          active: true,
-        });
-      } catch (cfErr) {
-        console.warn('[AdminDashboard] Cloudflare savePromoCode warning:', cfErr);
-      }
-
       setPromoCodes((previous) => [
         ...previous.filter((item) => item.code !== normalizedCode),
         {
@@ -897,7 +760,7 @@ export default function AdminDashboard() {
           maxRedemptions: Math.max(1, promoMaxRedemptions),
           redeemedCount: 0,
           active: true,
-          updatedAt: nowIso,
+          updatedAt: new Date().toISOString(),
         },
       ].sort((a, b) => a.code.localeCompare(b.code)));
       setPromoCode('');
@@ -912,25 +775,13 @@ export default function AdminDashboard() {
 
   const handleTogglePromo = async (promo: PromoCodeRecord) => {
     try {
-      const nowIso = new Date().toISOString();
-      const newActive = !promo.active;
       await updateDoc(doc(db, 'promo_codes', promo.code), {
-        active: newActive,
-        updatedAt: nowIso,
+        active: !promo.active,
+        updatedAt: new Date().toISOString(),
         updatedBy: adminUser?.email || 'admin',
       });
-
-      try {
-        await cloudflareApi.savePromoCode(promo.code, {
-          ...promo,
-          active: newActive,
-        });
-      } catch (cfErr) {
-        console.warn('[AdminDashboard] Cloudflare toggle promo warning:', cfErr);
-      }
-
       setPromoCodes((previous) => previous.map((item) =>
-        item.code === promo.code ? { ...item, active: newActive } : item,
+        item.code === promo.code ? { ...item, active: !item.active } : item,
       ));
     } catch (error) {
       console.error('[AdminDashboard] Failed to toggle promo code:', error);
@@ -942,11 +793,6 @@ export default function AdminDashboard() {
     if (!window.confirm(`Delete promo code ${promo.code}?`)) return;
     try {
       await deleteDoc(doc(db, 'promo_codes', promo.code));
-      try {
-        await cloudflareApi.deletePromoCode(promo.code);
-      } catch (cfErr) {
-        console.warn('[AdminDashboard] Cloudflare deletePromoCode warning:', cfErr);
-      }
       setPromoCodes((previous) => previous.filter((item) => item.code !== promo.code));
     } catch (error) {
       console.error('[AdminDashboard] Failed to delete promo code:', error);
@@ -960,10 +806,8 @@ export default function AdminDashboard() {
     setSavingDoctorEdit(true);
     try {
       const { id, caseLimit, title, titleAr, fullName, fullNameAr, university, universityAr, graduationYear, clinicName, clinicNameAr, locationAddress, locationAddressAr, phone, whatsapp } = editDoctorForm;
-      const nowIso = new Date().toISOString();
 
-      const editPayload = {
-        ...editDoctorForm,
+      await updateDoc(doc(db, 'users', id), {
         caseLimit: Number(caseLimit) || 3,
         title: title || '',
         titleAr: titleAr || '',
@@ -978,25 +822,10 @@ export default function AdminDashboard() {
         locationAddressAr: locationAddressAr || '',
         phone: phone || '',
         whatsapp: whatsapp || '',
-        updatedAt: nowIso
-      };
+        updatedAt: new Date().toISOString()
+      });
 
-      await updateDoc(doc(db, 'users', id), editPayload);
-
-      try {
-        await updateDoc(doc(db, 'portfolios', id), editPayload);
-      } catch (pErr) {
-        console.warn('portfolios updateDoc warning:', pErr);
-      }
-
-      try {
-        await cloudflareApi.saveProfile(editPayload, id);
-        await cloudflareApi.savePortfolio(editPayload, id);
-      } catch (cfErr) {
-        console.warn('cloudflareApi saveProfile warning:', cfErr);
-      }
-
-      setDoctors(prev => prev.map(d => d.id === id ? { ...d, ...editPayload } : d));
+      setDoctors(prev => prev.map(d => d.id === id ? { ...d, ...editDoctorForm, caseLimit: Number(caseLimit) || 3 } : d));
       setStatusMessage({ type: 'success', text: `تم تحديث بيانات وحدود د. ${fullName} بنجاح.` });
       setEditDoctorForm(null);
     } catch (err: any) {
@@ -1536,7 +1365,7 @@ export default function AdminDashboard() {
 
                               {(doctor.status === 'published' || doctor.status === 'approved') && (
                                 <a
-                                  href={getDoctorPublicUrl(doctor)}
+                                  href={`${globalSettings.baseUrl}/dr${doctor.slug || doctor.username || doctor.id}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="p-1.5 text-cyan-700 hover:bg-cyan-50 rounded-lg transition"

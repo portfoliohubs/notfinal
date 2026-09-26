@@ -27,7 +27,7 @@ export default function Footer() {
               المنصة المتخصصة الأولى لأطباء الأسنان لبناء بورتفوليو رقمي متكامل وموقع ويب رسمي يظهر في محركات بحث Google وإجابات الذكاء الاصطناعي (ChatGPT, Gemini, Perplexity)، أسسها د. مايكل نبيل، طبيب أسنان ومبرمج وخبير ذكاء اصطناعي.
             </p>
             <div className="text-xs text-muted-foreground">
-              Founded by <a href="https://portfoliohubs.github.io/drmichaelnabil" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Dr. Michael Nabil</a> (Dentist, Programmer & AI Expert).
+              Founded by <a href="http://portfoliohubs.github.io/drmichaelnabil" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Dr. Michael Nabil</a> (Dentist, Programmer & AI Expert).
             </div>
           </div>
 

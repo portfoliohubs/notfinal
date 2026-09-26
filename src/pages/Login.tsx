@@ -7,8 +7,7 @@ import {
   signInWithPopup, 
   updateProfile
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { auth } from '../lib/firebase';
 import { uploadBatchResilient } from '../lib/storageHelper';
 import { cloudflareApi } from '../lib/cloudflareApiClient';
 import CONFIG from '../config';
@@ -118,30 +117,19 @@ export default function Login() {
           await cloudflareApi.saveProfile(payload, user.uid);
           await cloudflareApi.savePortfolio(payload, user.uid);
 
-          try {
-            await setDoc(doc(db, 'portfolios', user.uid), payload, { merge: true });
-            await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
-          } catch (fsErr) {
-            console.warn('[Login] Firestore mirror warning:', fsErr);
-          }
-
           // Also save subcollection cases if present
           if (draft.cases && Array.isArray(draft.cases)) {
             for (let i = 0; i < draft.cases.length; i++) {
               const c = draft.cases[i];
               const caseId = c.id || `case_${Date.now()}_${i}`;
               try {
-                const casePayload = {
+                await cloudflareApi.saveCase({
                   ...c,
                   id: caseId,
                   uid: user.uid,
                   sortOrder: i,
                   updatedAt: new Date().toISOString(),
-                };
-                await cloudflareApi.saveCase(casePayload, user.uid);
-                try {
-                  await setDoc(doc(db, 'portfolios', user.uid, 'cases', caseId), casePayload, { merge: true });
-                } catch {}
+                }, user.uid);
               } catch (err) {
                 console.warn('Error saving case subcollection:', err);
               }
@@ -153,36 +141,6 @@ export default function Login() {
           const phone = CONFIG.social.whatsapp.replace(/[^0-9]/g, '');
           const msg = encodeURIComponent(`Hi, I have just completed my portfolio registration and selected the ${draft.packageTier || 'Free'} package. I'd like to arrange payment.`);
           window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
-        } else {
-          // Direct signup without wizard - initialize starter profile
-          const starterPayload = {
-            uid: user.uid,
-            fullName: user.displayName || name || '',
-            email: user.email || email || '',
-            status: 'draft' as const,
-            isApproved: false,
-            caseLimit: 3,
-            packageTier: 'Free',
-            active: true,
-            hasUnreviewedChanges: false,
-            paymentConfirmed: false,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
-
-          try {
-            await cloudflareApi.saveProfile(starterPayload, user.uid);
-            await cloudflareApi.savePortfolio(starterPayload, user.uid);
-          } catch (cfErr) {
-            console.warn('[Login] Starter Cloudflare API sync warning:', cfErr);
-          }
-
-          try {
-            await setDoc(doc(db, 'portfolios', user.uid), starterPayload, { merge: true });
-            await setDoc(doc(db, 'users', user.uid), starterPayload, { merge: true });
-          } catch (fsErr) {
-            console.warn('[Login] Starter Firestore sync warning:', fsErr);
-          }
         }
       }
 

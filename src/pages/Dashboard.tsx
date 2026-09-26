@@ -6,7 +6,6 @@ import {
   sendPasswordResetEmail,
   User 
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { 
   User as UserIcon, 
   Briefcase, 
@@ -32,7 +31,7 @@ import {
   Sparkles,
   Zap
 } from 'lucide-react';
-import { auth, db } from '../lib/firebase';
+import { auth } from '../lib/firebase';
 import { cleanFirestoreData } from '../lib/firestoreUtils';
 import Header from '../components/Header';
 import HotmartSidebar from '../components/HotmartSidebar';
@@ -40,7 +39,6 @@ import BentoGridServices from '../components/BentoGridServices';
 import CONFIG from '../config';
 import { processImageToBase64 } from '../lib/imageProcessor';
 import { uploadBatchResilient } from '../lib/storageHelper';
-import { publicDoctorUrl } from '../lib/publicSiteUrl';
 import ClinicalCaseCard from '../components/ClinicalCaseCard';
 import UpgradeModal from '../components/UpgradeModal';
 import { 
@@ -91,40 +89,11 @@ export default function Dashboard() {
         let loadedDocData: any = null;
 
         try {
-          const profileResponse = await cloudflareApi.getProfile(currentUser.uid);
-          loadedDocData = profileResponse?.data || null;
+          loadedDocData = (await cloudflareApi.getProfile(currentUser.uid)).data;
         } catch (readErr: any) {
-          console.warn('Could not read user profile from Cloudflare, checking Firestore fallback:', readErr);
-        }
-
-        if (!loadedDocData) {
-          try {
-            const fsSnap = await getDoc(doc(db, 'portfolios', currentUser.uid));
-            if (fsSnap.exists()) {
-              loadedDocData = fsSnap.data();
-            } else {
-              const userSnap = await getDoc(doc(db, 'users', currentUser.uid));
-              if (userSnap.exists()) {
-                loadedDocData = userSnap.data();
-              }
-            }
-          } catch (fsErr) {
-            console.warn('Firestore fallback read error:', fsErr);
-          }
-        }
-
-        // Clean default starter profile for new users who signed up directly
-        if (!loadedDocData) {
-          loadedDocData = {
-            fullName: currentUser.displayName || '',
-            email: currentUser.email || '',
-            status: 'draft',
-            caseLimit: CONFIG.tierLimits.freeCases,
-            packageTier: 'Free',
-            active: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          };
+          console.warn('Could not read user profile from Cloudflare:', readErr);
+          setSaveError('Unable to load your profile. Please check your connection or contact support.');
+          throw readErr;
         }
 
         if (loadedDocData) {
@@ -346,9 +315,15 @@ export default function Dashboard() {
         });
       }
 
-      // Note: Cases are handled separately via subcollection handlers, not in main form.cases array
-      // Clinical cases are saved through handleAddNewCase, handleUpdateCaseItem, handleDeleteCaseItem
-      // which use saveClinicalCaseToSubcollection to store in users/{uid}/cases
+      form.cases.forEach((c, idx) => {
+        if (c.photo && c.photo.startsWith('data:image')) {
+          uploadItems.push({
+            key: `case_${idx}`,
+            dataUrl: c.photo,
+            path: `cases/${Date.now()}_${idx}.jpg`
+          });
+        }
+      });
 
       // 2. Perform parallel batch upload with real-time feedback
       const uploadResults = await uploadBatchResilient(
@@ -360,8 +335,33 @@ export default function Dashboard() {
       // 3. Resolve final profile photo URL
       const profileUrl = uploadResults[profileKey] || form.profilePhoto || '';
 
-      // 4. Skip case processing - cases are handled via subcollection
-      // The subcollection is the single source of truth for clinical cases
+      // 4. Resolve final case photo URLs with clean values
+      const processedCases: ClinicalCase[] = form.cases.map((c, idx) => {
+        const finalUrl = uploadResults[`case_${idx}`] || c.photo || '';
+        const item: ClinicalCase = {
+          id: c.id || `case_${Date.now()}_${idx}`,
+          uid: user.uid,
+          category: c.category || 'operative',
+          categoryAr: c.categoryAr || '',
+          customCategory: c.customCategory || '',
+          title: c.title || '',
+          titleAr: c.titleAr || '',
+          description: c.description || '',
+          descriptionAr: c.descriptionAr || '',
+          photo: finalUrl,
+          preview: finalUrl,
+          sortOrder: typeof c.sortOrder === 'number' ? c.sortOrder : idx,
+          createdAt: c.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        if (typeof c.originalSizeKb === 'number') {
+          item.originalSizeKb = c.originalSizeKb;
+        }
+        if (typeof c.compressedSizeKb === 'number') {
+          item.compressedSizeKb = c.compressedSizeKb;
+        }
+        return item;
+      });
 
       // 4b. Sanitize timeline items
       const sanitizedTimeline: Milestone[] = (form.timeline || []).map(t => ({
@@ -420,19 +420,11 @@ export default function Dashboard() {
       await cloudflareApi.saveProfile(updatedPayload, user.uid);
       await cloudflareApi.savePortfolio(updatedPayload, user.uid);
 
-      try {
-        await setDoc(doc(db, 'portfolios', user.uid), updatedPayload, { merge: true });
-        await setDoc(doc(db, 'users', user.uid), updatedPayload, { merge: true });
-      } catch (fsErr) {
-        console.warn('[Dashboard] Firestore mirror write warning:', fsErr);
-      }
-
-      // 7. Update local state - DO NOT include cases array in main document
-      // Cases are stored in subcollection only
+      // 7. Update local state
       const nextPortfolio: PortfolioData = {
         ...portfolio!,
         ...updatedPayload,
-        cases: [], // ✅ Empty - cases are in subcollection only
+        cases: [],
         caseCount: subcollectionCases.length,
         profilePhoto: profileUrl,
         profilePreview: profileUrl,
@@ -715,7 +707,7 @@ export default function Dashboard() {
 
             {portfolio.status === 'published' && (
               <a
-                href={publicDoctorUrl(cleanSlug)}
+                href={`https://portfoliohubs.pages.dev/dr${cleanSlug}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 text-primary font-semibold text-xs hover:bg-primary/20 transition"

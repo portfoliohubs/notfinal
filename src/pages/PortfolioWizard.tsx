@@ -25,8 +25,7 @@ import { processImageToBase64, processMultipleImages } from '../lib/imageProcess
 import { gtagEvent } from '../lib/gtag';
 import UpgradeModal from '../components/UpgradeModal';
 import { compressImage } from '../lib/imageCompressor';
-import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { auth } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { cloudflareApi } from '../lib/cloudflareApiClient';
 import { publicDoctorUrl } from '../lib/publicSiteUrl';
@@ -220,90 +219,21 @@ export default function PortfolioWizard() {
     setRedeemingPromo(true);
     setPromoMessage('');
     try {
-      let promoData: any = null;
-      try {
-        const promo = await cloudflareApi.getPromoCode(code);
-        promoData = promo?.data || null;
-      } catch (cfErr) {
-        console.warn('[PortfolioWizard] CF promo check warning, falling back to Firestore:', cfErr);
-      }
-
-      if (!promoData) {
-        try {
-          const promoSnap = await getDoc(doc(db, 'promo_codes', code));
-          if (promoSnap.exists()) {
-            promoData = promoSnap.data();
-          }
-        } catch (fsErr) {
-          console.warn('[PortfolioWizard] Firestore promo lookup error:', fsErr);
-        }
-      }
-
-      if (!promoData || promoData.active !== true) {
-        throw new Error('البرومو غير صالح أو منتهي.');
-      }
-
-      if (promoData.maxRedemptions && (promoData.redeemedCount || 0) >= promoData.maxRedemptions) {
-        throw new Error('تم الوصول للحد الأقصى لاستخدام هذا البرومو.');
-      }
-
-      try {
-        await cloudflareApi.redeemPromo(code);
-      } catch (e) {
-        console.warn('CF redeemPromo call note:', e);
-      }
-
-      try {
-        await updateDoc(doc(db, 'promo_codes', code), {
-          redeemedCount: (promoData.redeemedCount || 0) + 1,
-          lastRedeemedAt: new Date().toISOString()
-        });
-      } catch (e) {
-        console.warn('Firestore promo count increment note:', e);
-      }
-
-      let currentProfileData: any = {};
-      try {
-        const currentProfile = await cloudflareApi.getProfile(user.uid);
-        currentProfileData = currentProfile?.data || {};
-      } catch (e) {
-        console.warn('CF getProfile note:', e);
-      }
-
+      const promo = await cloudflareApi.getPromoCode(code);
+      const promoData = promo.data || {};
+      if (promoData.active !== true) throw new Error('البرومو غير صالح أو منتهي.');
+      await cloudflareApi.redeemPromo(code);
+      const currentProfile = await cloudflareApi.getProfile(user.uid);
       const nextLimit = Math.max(
-        Number(currentProfileData.caseLimit || maxAllowedCases),
+        Number(currentProfile.data.caseLimit || maxAllowedCases),
         Number(promoData.caseLimit || 5),
       );
-
-      const nowIso = new Date().toISOString();
-      const updatedProfile = {
-        ...currentProfileData,
+      await cloudflareApi.saveProfile({
+        ...currentProfile.data,
         caseLimit: nextLimit,
         promoCode: code,
-        updatedAt: nowIso,
-      };
-
-      try {
-        await cloudflareApi.saveProfile(updatedProfile, user.uid);
-      } catch (e) {
-        console.warn('CF saveProfile promo note:', e);
-      }
-
-      try {
-        await setDoc(doc(db, 'portfolios', user.uid), {
-          caseLimit: nextLimit,
-          promoCode: code,
-          updatedAt: nowIso,
-        }, { merge: true });
-        await setDoc(doc(db, 'users', user.uid), {
-          caseLimit: nextLimit,
-          promoCode: code,
-          updatedAt: nowIso,
-        }, { merge: true });
-      } catch (fsErr) {
-        console.warn('Firestore mirror promo note:', fsErr);
-      }
-
+        updatedAt: new Date().toISOString(),
+      }, user.uid);
       setMaxAllowedCases(nextLimit);
       setPromoMessage('تم تفعيل البرومو بنجاح.');
       setPromoCode('');

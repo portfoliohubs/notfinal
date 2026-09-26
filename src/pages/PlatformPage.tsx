@@ -183,7 +183,7 @@ function AboutEntityHome() {
                 <p className="text-sm font-medium text-primary">المؤسس · طبيب أسنان، مبرمج وخبير ذكاء اصطناعي</p>
               </div>
               <a 
-                href="https://portfoliohubs.github.io/drmichaelnabil" 
+                href="http://portfoliohubs.github.io/drmichaelnabil" 
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all shadow"

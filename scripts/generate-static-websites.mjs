@@ -96,16 +96,4 @@ for (const doctor of source) {
   console.log(`✅ Generated rich static doctor website and articles for: ${doctor.fullName} (${cleanSlug})`);
 }
 
-// Ensure 404.html exists in dist for GitHub Pages SPA routing fallback
-try {
-  const indexPath = path.join(outputRoot, 'index.html');
-  const notFoundPath = path.join(outputRoot, '404.html');
-  const indexContent = await readFile(indexPath, 'utf8');
-  await writeFile(notFoundPath, indexContent, 'utf8');
-  console.log('✅ Created dist/404.html for GitHub Pages SPA fallback.');
-} catch (err) {
-  console.warn('⚠️ Note on 404.html fallback creation:', err.message);
-}
-
 console.log(`Generated ${seenSlugs.size} static doctor website page(s).`);
-

@@ -16,9 +16,10 @@ import PlatformPage from './pages/PlatformPage';
 import ContextAwareChatbot from './components/ContextAwareChatbot';
 
 export default function App() {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   return (
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-      <Router>
+      <Router base={base}>
         <Switch>
         <Route path="/" component={HomePage} />
         <Route path="/login" component={Login} />
@@ -47,8 +48,6 @@ export default function App() {
         <Route path="/status"><PlatformPage kind="status" /></Route>
         <Route path="/dr:slug" component={PublicWebsite} />
         <Route path="/dr/:slug" component={PublicWebsite} />
-        {/* Direct doctor vanity path fallback (e.g., /michael1 or /dr-michael1) */}
-        <Route path="/:slug" component={PublicWebsite} />
         {/* Fallback route */}
         <Route component={HomePage} />
         </Switch>
