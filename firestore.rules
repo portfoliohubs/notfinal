@@ -7,15 +7,13 @@ service cloud.firestore {
     // ADMIN VERIFICATION LOGIC
     // =========================================================================
     function isAdmin() {
-      return request.auth != null && (
-        request.auth.token.email in [
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
           'cources01@gmail.com',
           'admin@portfoliohubs.com',
           'portfoliohubs.contact@gmail.com'
-        ] ||
-        (request.auth.token.email != null && request.auth.token.email.matches('.*@portfoliohubs[.]com$')) ||
-        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email)))
-      );
+        ];
     }
 
     // Helper: Checks if the user is authenticated and matches the owner UID
@@ -72,7 +70,7 @@ service cloud.firestore {
     // 5. ADMIN ALLOWLIST (/admins/{email})
     // =========================================================================
     match /admins/{email} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null && (request.auth.token.email == email || isAdmin());
       allow write: if isAdmin();
     }
 
@@ -100,17 +98,9 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Promo codes are readable for validation, but only admins can create or edit them.
+    // Legacy promo records are admin-only; active redemption is handled by the Worker.
     match /promo_codes/{code} {
-      allow read: if request.auth != null;
-      allow create: if isAdmin();
-      allow update: if isAdmin()
-        || (
-          request.auth != null
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['redeemedCount'])
-          && request.resource.data.redeemedCount == resource.data.redeemedCount + 1
-        );
-      allow delete: if isAdmin();
+      allow read, create, update, delete: if isAdmin();
     }
   }
 }

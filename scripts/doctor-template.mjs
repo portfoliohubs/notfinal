@@ -25,6 +25,15 @@ function escapeAttr(str) {
   return escapeHtml(str);
 }
 
+function safeExternalUrl(value) {
+    try {
+        const url = new URL(String(value || '').trim());
+        return url.protocol === 'https:' ? url.href : '';
+    } catch {
+        return '';
+    }
+}
+
 function safeJsonLd(obj) {
   return JSON.stringify(obj)
     .replace(/</g, '\\u003c')
@@ -35,17 +44,20 @@ function safeJsonLd(obj) {
 function formatImageSrc(val, fallback = '/logo.png') {
   if (!val) return fallback;
   const s = String(val).trim();
-  if (s.startsWith('data:') || s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/')) {
+    if (/^data:image\/(jpeg|png|webp);base64,/i.test(s) || s.startsWith('https://') || (s.startsWith('/') && !s.startsWith('//'))) {
     return s;
   }
-  // Raw base64 string
-  return `data:image/jpeg;base64,${s}`;
+    if (/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(s) && s.length > 0) {
+        return `data:image/jpeg;base64,${s}`;
+    }
+    return fallback;
 }
 
 function cleanPhone(val) {
   return String(val || '').replace(/[\s+()\-]/g, '');
 }
 
+/** @param {{ doctor: Record<string, unknown>, cases?: Record<string, unknown>[], baseUrl?: string }} options */
 export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://portfoliohubs.github.io' }) {
   const doc = doctor || {};
   const rootBase = (baseUrl || 'https://portfoliohubs.github.io').replace(/\/+$/, '');
@@ -154,12 +166,61 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://p
             cases: []
           });
         }
+
+        // Collect all available photos from modern structure (photos[], beforePhoto, afterPhoto, additionalPhotos) or legacy
+        const photosList = [];
+        if (Array.isArray(c.photos) && c.photos.length > 0) {
+          c.photos.forEach((p, pIdx) => {
+            const url = p.url || p.previewUrl || p;
+            if (url) {
+              photosList.push({
+                url,
+                label: p.label || (pIdx === 0 ? 'Pre-op / Initial' : `Step ${pIdx + 1}`),
+                labelAr: p.labelAr || p.label || (pIdx === 0 ? 'الوضع الأولي' : `المرحلة ${pIdx + 1}`)
+              });
+            }
+          });
+        } else {
+          if (c.beforePhoto?.url || c.beforePhoto?.previewUrl) {
+            photosList.push({
+              url: c.beforePhoto.url || c.beforePhoto.previewUrl,
+              label: c.beforePhoto.label || 'Before Treatment',
+              labelAr: c.beforePhoto.labelAr || 'قبل العلاج'
+            });
+          }
+          if (c.afterPhoto?.url || c.afterPhoto?.previewUrl) {
+            photosList.push({
+              url: c.afterPhoto.url || c.afterPhoto.previewUrl,
+              label: c.afterPhoto.label || 'After Treatment',
+              labelAr: c.afterPhoto.labelAr || 'بعد العلاج'
+            });
+          }
+          if (Array.isArray(c.additionalPhotos)) {
+            c.additionalPhotos.forEach((ap, aIdx) => {
+              const aUrl = ap.url || ap.previewUrl || ap;
+              if (aUrl) {
+                photosList.push({
+                  url: aUrl,
+                  label: ap.label || `Stage ${aIdx + 1}`,
+                  labelAr: ap.labelAr || `مرحلة إضافية ${aIdx + 1}`
+                });
+              }
+            });
+          }
+        }
+
+        const fallbackPhoto = c.photo || c.beforePhotoUrl || c.afterPhotoUrl || c.image || (photosList[0]?.url) || '';
+
         catMap.get(cat).cases.push({
-          photo: c.photo || c.beforePhotoUrl || c.afterPhotoUrl || c.image || '',
+          id: c.id || `case_${idx}`,
+          photo: fallbackPhoto,
+          photos: photosList.length > 0 ? photosList : [{ url: fallbackPhoto, label: 'Result', labelAr: 'النتيجة' }],
           alt: c.alt || c.title || c.description || `Clinical Case ${idx + 1}`,
           alt_ar: c.alt_ar || c.altAr || c.titleAr || c.descriptionAr || c.alt || `حالة سريرية ${idx + 1}`,
           description: c.description || c.title || '',
-          description_ar: c.description_ar || c.descriptionAr || c.description || ''
+          description_ar: c.description_ar || c.descriptionAr || c.description || '',
+          treatmentType: c.treatmentType || '',
+          sessionCount: c.sessionCount || 0
         });
       });
       clinicalCases = Array.from(catMap.values());
@@ -173,6 +234,9 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://p
   const instagram = doc.contact?.instagram || doc.instagram || '';
   const facebook = doc.contact?.facebook || doc.facebook || '';
   const linkedin = doc.contact?.linkedin || doc.linkedin || '';
+    const instagramUrl = safeExternalUrl(instagram);
+    const facebookUrl = safeExternalUrl(facebook);
+    const linkedinUrl = safeExternalUrl(linkedin);
 
   const locationEnabled = doc.contact?.location?.enabled ?? Boolean(doc.locationAddress || doc.contact?.location?.address);
   const locationAddress = doc.contact?.location?.address || doc.locationAddress || 'Private Dental Clinic';
@@ -334,23 +398,53 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://p
         const catNameEn = cat.category || 'Clinical Cases';
         const catNameAr = cat.category_ar || catNameEn;
 
-        const cardsHtml = catCases.map(c => {
-          const caseImg = formatImageSrc(c.photo, `${rootBase}/logo.png`);
+        const cardsHtml = catCases.map((c, caseIdx) => {
+          const casePhotos = Array.isArray(c.photos) && c.photos.length > 0
+            ? c.photos.map(p => ({
+                url: formatImageSrc(p.url, `${rootBase}/logo.png`),
+                labelEn: p.label || 'Clinical Step',
+                labelAr: p.labelAr || p.label || 'خطوة سريرية'
+              }))
+            : [{
+                url: formatImageSrc(c.photo, `${rootBase}/logo.png`),
+                labelEn: 'Result',
+                labelAr: 'النتيجة'
+              }];
+
+          const initialPhoto = casePhotos[0];
+          const hasMultiplePhotos = casePhotos.length > 1;
           const caseAltEn = c.alt || c.description || 'Clinical Case';
           const caseAltAr = c.alt_ar || c.description_ar || caseAltEn;
           const caseDescEn = c.description || c.alt || '';
           const caseDescAr = c.description_ar || c.alt_ar || caseDescEn;
+          const photosJson = escapeAttr(JSON.stringify(casePhotos));
 
           return `
-            <div class="case-card">
-                <div class="case-image-wrapper single">
-                    <img src="${escapeAttr(caseImg)}" 
+            <div class="case-card" data-case-index="${caseIdx}" data-photos="${photosJson}">
+                <div class="case-image-wrapper">
+                    <img src="${escapeAttr(initialPhoto.url)}" 
                          alt="${escapeAttr(caseAltEn)}" 
                          data-alt-en="${escapeAttr(caseAltEn)}" 
                          data-alt-ar="${escapeAttr(caseAltAr)}" 
                          class="case-image" 
                          loading="lazy">
+                    ${hasMultiplePhotos ? `
+                    <button type="button" class="case-slider-btn prev" aria-label="Previous Photo" onclick="navigateCaseSlider(this, -1)">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <button type="button" class="case-slider-btn next" aria-label="Next Photo" onclick="navigateCaseSlider(this, 1)">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                    <div class="case-photo-badge" data-en="${escapeAttr(initialPhoto.labelEn)}" data-ar="${escapeAttr(initialPhoto.labelAr)}">${escapeHtml(initialPhoto.labelEn)}</div>
+                    ` : ''}
                 </div>
+                ${hasMultiplePhotos ? `
+                <div class="case-slider-dots">
+                    ${casePhotos.map((_, dotIdx) => `
+                        <button type="button" class="case-dot ${dotIdx === 0 ? 'active' : ''}" aria-label="Slide ${dotIdx + 1}" onclick="jumpCaseSlider(this, ${dotIdx})"></button>
+                    `).join('')}
+                </div>
+                ` : ''}
                 <div class="case-description">
                     <p data-en="${escapeHtml(caseDescEn)}" data-ar="${escapeHtml(caseDescAr)}">${escapeHtml(caseDescEn)}</p>
                 </div>
@@ -1042,6 +1136,7 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://p
             position: relative;
             padding-top: 70%;
             overflow: hidden;
+            background: var(--bg-secondary);
         }
 
         .case-image {
@@ -1052,10 +1147,96 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://p
             height: 100%;
             object-fit: contain;
             background: var(--bg-secondary);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        .case-slider-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.45);
+            color: #ffffff;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 5;
+            transition: background 0.2s ease, transform 0.2s ease;
+            backdrop-filter: blur(4px);
+        }
+
+        .case-slider-btn:hover {
+            background: rgba(0, 0, 0, 0.75);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .case-slider-btn.prev {
+            left: 8px;
+        }
+
+        .case-slider-btn.next {
+            right: 8px;
+        }
+
+        body[dir="rtl"] .case-slider-btn.prev {
+            left: auto;
+            right: 8px;
+        }
+
+        body[dir="rtl"] .case-slider-btn.next {
+            right: auto;
+            left: 8px;
+        }
+
+        .case-photo-badge {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(17, 24, 39, 0.75);
+            color: #ffffff;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            backdrop-filter: blur(6px);
+            z-index: 5;
+            white-space: nowrap;
+            max-width: 90%;
+            text-overflow: ellipsis;
+            overflow: hidden;
+        }
+
+        .case-slider-dots {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 0 0 0;
+        }
+
+        .case-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--border-color);
+            border: none;
+            cursor: pointer;
+            padding: 0;
+            transition: all 0.2s ease;
+        }
+
+        .case-dot.active {
+            background: var(--primary-color);
+            width: 18px;
+            border-radius: 4px;
         }
 
         .case-description {
-            padding: 1.5rem;
+            padding: 1.25rem 1.5rem 1.5rem;
             text-align: center;
             color: var(--text-light);
         }
@@ -1586,7 +1767,7 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://p
                     </a>` : ''}
 
                     ${whatsapp ? `
-                    <a href="https://wa.me/${escapeAttr(cleanPhone(whatsapp))}" target="_blank" class="contact-method">
+                    <a href="https://wa.me/${escapeAttr(cleanPhone(whatsapp))}" target="_blank" rel="noopener noreferrer" class="contact-method">
                         <div class="contact-icon whatsapp">
                             <i class="fab fa-whatsapp"></i>
                         </div>
@@ -1611,9 +1792,9 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://p
                 <div class="social-media">
                     <h3 class="social-title" data-en="Follow My Work" data-ar="تابعني على وسائل التواصل">Follow My Work</h3>
                     <div class="social-links" id="socialLinks">
-                        ${instagram ? `<a href="${escapeAttr(instagram)}" target="_blank" class="social-link instagram" aria-label="Instagram"><i class="fab fa-instagram"></i></a>` : ''}
-                        ${facebook ? `<a href="${escapeAttr(facebook)}" target="_blank" class="social-link facebook" aria-label="Facebook"><i class="fab fa-facebook"></i></a>` : ''}
-                        ${linkedin ? `<a href="${escapeAttr(linkedin)}" target="_blank" class="social-link linkedin" aria-label="LinkedIn"><i class="fab fa-linkedin"></i></a>` : ''}
+                        ${instagramUrl ? `<a href="${escapeAttr(instagramUrl)}" target="_blank" rel="noopener noreferrer" class="social-link instagram" aria-label="Instagram"><i class="fab fa-instagram"></i></a>` : ''}
+                        ${facebookUrl ? `<a href="${escapeAttr(facebookUrl)}" target="_blank" rel="noopener noreferrer" class="social-link facebook" aria-label="Facebook"><i class="fab fa-facebook"></i></a>` : ''}
+                        ${linkedinUrl ? `<a href="${escapeAttr(linkedinUrl)}" target="_blank" rel="noopener noreferrer" class="social-link linkedin" aria-label="LinkedIn"><i class="fab fa-linkedin"></i></a>` : ''}
                     </div>
                 </div>
                 
@@ -1634,6 +1815,7 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://p
                     <a 
                         href="https://www.google.com/maps/search/?api=1&query=${escapeAttr(latitude)},${escapeAttr(longitude)}" 
                         target="_blank" 
+                        rel="noopener noreferrer" 
                         class="btn btn-secondary">
                         <i class="fas fa-directions"></i>
                         <span data-en="Get Directions" data-ar="الاتجاهات">Get Directions</span>
@@ -2133,6 +2315,72 @@ export function buildDoctorStaticHtml({ doctor, cases = [], baseUrl = 'https://p
                 console.error('Error creating PDF:', error);
                 throw error;
             }
+        }
+
+        // Clinical Case Multi-Photo Interactive Slider Navigation
+        function navigateCaseSlider(btn, direction) {
+            const card = btn.closest('.case-card');
+            if (!card) return;
+            const photosData = card.getAttribute('data-photos');
+            if (!photosData) return;
+            let photos = [];
+            try {
+                photos = JSON.parse(photosData);
+            } catch (_) {
+                return;
+            }
+            if (!Array.isArray(photos) || photos.length <= 1) return;
+
+            let currentIndex = parseInt(card.getAttribute('data-current-photo') || '0', 10);
+            if (isNaN(currentIndex)) currentIndex = 0;
+
+            currentIndex = (currentIndex + direction + photos.length) % photos.length;
+            updateCaseCardPhoto(card, photos, currentIndex);
+        }
+
+        function jumpCaseSlider(dotBtn, targetIndex) {
+            const card = dotBtn.closest('.case-card');
+            if (!card) return;
+            const photosData = card.getAttribute('data-photos');
+            if (!photosData) return;
+            let photos = [];
+            try {
+                photos = JSON.parse(photosData);
+            } catch (_) {
+                return;
+            }
+            if (!Array.isArray(photos) || targetIndex < 0 || targetIndex >= photos.length) return;
+            updateCaseCardPhoto(card, photos, targetIndex);
+        }
+
+        function updateCaseCardPhoto(card, photos, index) {
+            card.setAttribute('data-current-photo', index.toString());
+            const img = card.querySelector('.case-image');
+            const badge = card.querySelector('.case-photo-badge');
+            const dots = card.querySelectorAll('.case-dot');
+            const item = photos[index];
+
+            if (img && item && item.url) {
+                img.style.opacity = '0.4';
+                setTimeout(() => {
+                    img.src = item.url;
+                    img.style.opacity = '1';
+                }, 120);
+            }
+
+            if (badge && item) {
+                badge.setAttribute('data-en', item.labelEn || '');
+                badge.setAttribute('data-ar', item.labelAr || item.labelEn || '');
+                badge.textContent = currentLang === 'ar' ? (item.labelAr || item.labelEn) : (item.labelEn || item.labelAr);
+            }
+
+            dots.forEach((d, i) => {
+                if (i === index) {
+                    d.classList.add('active');
+                } else {
+                    d.classList.remove('active');
+                }
+            });
         }
 
         // Language and Theme Management

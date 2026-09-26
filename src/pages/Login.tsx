@@ -28,22 +28,11 @@ export default function Login() {
   const handlePostAuth = async (user: any, isSignUp: boolean) => {
     try {
       let isAdmin = false;
-      if (user.email) {
-        if (
+      if (user.email && user.emailVerified) {
+        isAdmin =
           user.email === 'cources01@gmail.com' ||
           user.email === 'admin@portfoliohubs.com' ||
-          user.email === 'portfoliohubs.contact@gmail.com' ||
-          user.email.endsWith('@portfoliohubs.com')
-        ) {
-          isAdmin = true;
-        } else {
-          try {
-            isAdmin = false;
-          } catch (e) {
-            console.warn('[Login] Admin allowlist lookup failed:', e);
-            isAdmin = false;
-          }
-        }
+          user.email === 'portfoliohubs.contact@gmail.com'
       }
 
       if (isAdmin) {

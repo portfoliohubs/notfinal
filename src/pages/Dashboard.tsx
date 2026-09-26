@@ -142,6 +142,48 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [setLocation]);
 
+  // Real-time synchronization: poll user profile every 30s and on tab focus
+  useEffect(() => {
+    if (!user) return;
+    const fetchLatestProfile = async () => {
+      try {
+        const res = await cloudflareApi.getProfile(user.uid);
+        if (res?.data) {
+          setPortfolio(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              ...res.data,
+              status: res.data.status || prev.status,
+              hasUnreviewedChanges: res.data.hasUnreviewedChanges ?? prev.hasUnreviewedChanges,
+              caseLimit: res.data.caseLimit ?? prev.caseLimit,
+            };
+          });
+        }
+      } catch (_) {
+        // silent background sync
+      }
+    };
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && !saving && !isDirty) {
+        fetchLatestProfile();
+      }
+    }, 30000);
+
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible' && !saving && !isDirty) {
+        fetchLatestProfile();
+      }
+    };
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, [user, saving, isDirty]);
+
   const updateFormField = <K extends keyof PortfolioData>(key: K, value: PortfolioData[K]) => {
     if (!form) return;
     setForm(prev => prev ? ({ ...prev, [key]: value }) : null);

@@ -222,18 +222,8 @@ export default function PortfolioWizard() {
       const promo = await cloudflareApi.getPromoCode(code);
       const promoData = promo.data || {};
       if (promoData.active !== true) throw new Error('البرومو غير صالح أو منتهي.');
-      await cloudflareApi.redeemPromo(code);
-      const currentProfile = await cloudflareApi.getProfile(user.uid);
-      const nextLimit = Math.max(
-        Number(currentProfile.data.caseLimit || maxAllowedCases),
-        Number(promoData.caseLimit || 5),
-      );
-      await cloudflareApi.saveProfile({
-        ...currentProfile.data,
-        caseLimit: nextLimit,
-        promoCode: code,
-        updatedAt: new Date().toISOString(),
-      }, user.uid);
+      const result = await cloudflareApi.redeemPromo(code);
+      const nextLimit = Number(result.caseLimit) || maxAllowedCases;
       setMaxAllowedCases(nextLimit);
       setPromoMessage('تم تفعيل البرومو بنجاح.');
       setPromoCode('');

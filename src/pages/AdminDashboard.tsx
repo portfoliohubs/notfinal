@@ -235,42 +235,20 @@ export default function AdminDashboard() {
       setAdminUser(user);
 
       try {
-        // Option A: Check protected admins collection
-        const adminDoc = await getDoc(doc(db, 'admins', user.email || ''));
-        if (adminDoc.exists()) {
-          setIsAdmin(true);
-        } else if (
+        setIsAdmin(Boolean(user.emailVerified && (
           user.email === 'cources01@gmail.com' ||
           user.email === 'admin@portfoliohubs.com' ||
-          user.email === 'portfoliohubs.contact@gmail.com' ||
-          user.email?.endsWith('@portfoliohubs.com')
-        ) {
-          setIsAdmin(true);
-          // Auto-seed admin doc to ensure subcollection rules work seamlessly
-          try {
-            await setDoc(doc(db, 'admins', user.email || ''), {
-              email: user.email,
-              role: 'superadmin',
-              grantedAt: new Date().toISOString()
-            }, { merge: true });
-          } catch (e) {
-            console.warn('Could not auto-seed admin doc:', e);
-          }
-        } else {
-          setIsAdmin(false);
-        }
+          user.email === 'portfoliohubs.contact@gmail.com'
+        )));
       } catch (err) {
         console.warn('Admin check error:', err);
-        // Fallback for primary owner email
-        if (
-          user.email === 'cources01@gmail.com' || 
-          user.email === 'portfoliohubs.contact@gmail.com' || 
-          user.email === 'admin@portfoliohubs.com'
-        ) {
-          setIsAdmin(true);
-        } else {
-          setIsAdmin(false);
-        }
+        setIsAdmin(Boolean(
+          user.emailVerified && (
+            user.email === 'cources01@gmail.com' ||
+            user.email === 'portfoliohubs.contact@gmail.com' ||
+            user.email === 'admin@portfoliohubs.com'
+          )
+        ));
       } finally {
         setLoading(false);
       }
@@ -313,12 +291,28 @@ export default function AdminDashboard() {
 
       setLoadingPromos(true);
       try {
-        const promoSnap = await getDocs(collection(db, 'promo_codes'));
-        setPromoCodes(
-          promoSnap.docs
-            .map((promoDoc) => ({ code: promoDoc.id, ...promoDoc.data() } as PromoCodeRecord))
-            .sort((a, b) => a.code.localeCompare(b.code)),
-        );
+        const legacyPromoSnap = await getDocs(collection(db, 'promo_codes'));
+        const existingPromos = await cloudflareApi.getPromoCodes();
+        const existingCodes = new Set(existingPromos.map((item) => String(item.code || '')));
+        for (const promoDoc of legacyPromoSnap.docs) {
+          if (!existingCodes.has(promoDoc.id)) {
+            await cloudflareApi.savePromoCode(promoDoc.id, promoDoc.data());
+          }
+        }
+        const promoRows = await cloudflareApi.getPromoCodes();
+        setPromoCodes(promoRows.map((row) => {
+          const data = row.data && typeof row.data === 'object'
+            ? row.data as Record<string, unknown>
+            : {};
+          return {
+            code: String(row.code || ''),
+            caseLimit: Number(data.caseLimit) || 3,
+            maxRedemptions: Number(data.maxRedemptions) || 0,
+            redeemedCount: Number(row.redeemed_count ?? data.redeemedCount) || 0,
+            active: data.active === true,
+            updatedAt: typeof row.updated_at === 'string' ? row.updated_at : undefined,
+          };
+        }).filter((promo) => promo.code).sort((a, b) => a.code.localeCompare(b.code)));
       } catch (err) {
         console.warn('[AdminDashboard] Could not load promo codes:', err);
       } finally {
@@ -427,9 +421,28 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (isAdmin) {
-      fetchData();
-    }
+    if (!isAdmin) return;
+    fetchData();
+
+    // 1. Smart Polling every 30 seconds while the admin tab is open
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible' && !actionLoading) {
+        fetchData();
+      }
+    }, 30000);
+
+    // 2. Real-time refetch immediately when admin switches back to the tab
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [isAdmin]);
 
   // 3. Filtered & Paginated Doctors
@@ -507,10 +520,7 @@ export default function AdminDashboard() {
   const handleToggleAccountActive = async (doctor: PortfolioRecord) => {
     const newActiveState = !(doctor.active !== false);
     try {
-      await updateDoc(doc(db, 'users', doctor.id), {
-        active: newActiveState,
-        updatedAt: new Date().toISOString()
-      });
+      await cloudflareApi.updateAdminDoctor(doctor.id, { active: newActiveState });
 
       setDoctors(prev => prev.map(d => d.id === doctor.id ? { ...d, active: newActiveState } : d));
       setStatusMessage({
@@ -598,8 +608,14 @@ export default function AdminDashboard() {
         updatedAt: nowIso
       }, { merge: true });
 
-      // 3. Register Slug in Slugs Registry
-      // Update Local State
+      // 3. Register Slug and update D1 Cloudflare Worker database
+      try {
+        await cloudflareApi.approveAdminDoctor(doctor.id, derivedSlug);
+      } catch (cfErr) {
+        console.warn('[AdminDashboard] Cloudflare approve sync warning:', cfErr);
+      }
+
+      // Update Local State Optimistically
       setDoctors(prev => prev.map(d => d.id === doctor.id ? {
         ...d,
         status: 'published',
@@ -611,9 +627,14 @@ export default function AdminDashboard() {
       // 4. Trigger Real Static HTML Generation on Server
       let serverGenSuccess = false;
       try {
+        const idToken = await adminUser?.getIdToken();
+        if (!idToken) throw new Error('Admin session is unavailable.');
         const genRes = await fetch('/api/admin/generate-doctor-html', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
           body: JSON.stringify({
             doctor: { ...doctor, slug: derivedSlug, username: derivedSlug },
             cases: doctor.cases || []
@@ -681,21 +702,12 @@ export default function AdminDashboard() {
     setActionLoading(true);
 
     try {
-      const nowIso = new Date().toISOString();
-      await updateDoc(doc(db, 'users', rejectDoctorId), {
+      await cloudflareApi.updateAdminDoctor(rejectDoctorId, {
         status: 'rejected',
         hasUnreviewedChanges: false,
         adminNotes: rejectNotes,
         rejectionReason: rejectNotes,
-        updatedAt: nowIso
       });
-
-      await setDoc(doc(db, 'publications', rejectDoctorId), {
-        status: 'rejected',
-        approved: false,
-        adminNotes: rejectNotes,
-        updatedAt: nowIso
-      }, { merge: true });
 
       setDoctors(prev => prev.map(d => d.id === rejectDoctorId ? {
         ...d,
@@ -743,7 +755,7 @@ export default function AdminDashboard() {
     if (!normalizedCode) return;
     setSavingPromo(true);
     try {
-      await setDoc(doc(db, 'promo_codes', normalizedCode), {
+      const promo = {
         code: normalizedCode,
         caseLimit: Math.max(3, promoCaseLimit),
         maxRedemptions: Math.max(1, promoMaxRedemptions),
@@ -751,7 +763,8 @@ export default function AdminDashboard() {
         active: true,
         updatedAt: new Date().toISOString(),
         updatedBy: adminUser?.email || 'admin',
-      });
+      };
+      await cloudflareApi.savePromoCode(normalizedCode, promo);
       setPromoCodes((previous) => [
         ...previous.filter((item) => item.code !== normalizedCode),
         {
@@ -775,7 +788,8 @@ export default function AdminDashboard() {
 
   const handleTogglePromo = async (promo: PromoCodeRecord) => {
     try {
-      await updateDoc(doc(db, 'promo_codes', promo.code), {
+      await cloudflareApi.savePromoCode(promo.code, {
+        ...promo,
         active: !promo.active,
         updatedAt: new Date().toISOString(),
         updatedBy: adminUser?.email || 'admin',
@@ -792,7 +806,7 @@ export default function AdminDashboard() {
   const handleDeletePromo = async (promo: PromoCodeRecord) => {
     if (!window.confirm(`Delete promo code ${promo.code}?`)) return;
     try {
-      await deleteDoc(doc(db, 'promo_codes', promo.code));
+      await cloudflareApi.deletePromoCode(promo.code);
       setPromoCodes((previous) => previous.filter((item) => item.code !== promo.code));
     } catch (error) {
       console.error('[AdminDashboard] Failed to delete promo code:', error);
@@ -807,7 +821,7 @@ export default function AdminDashboard() {
     try {
       const { id, caseLimit, title, titleAr, fullName, fullNameAr, university, universityAr, graduationYear, clinicName, clinicNameAr, locationAddress, locationAddressAr, phone, whatsapp } = editDoctorForm;
 
-      await updateDoc(doc(db, 'users', id), {
+      await cloudflareApi.updateAdminDoctor(id, {
         caseLimit: Number(caseLimit) || 3,
         title: title || '',
         titleAr: titleAr || '',
@@ -822,7 +836,6 @@ export default function AdminDashboard() {
         locationAddressAr: locationAddressAr || '',
         phone: phone || '',
         whatsapp: whatsapp || '',
-        updatedAt: new Date().toISOString()
       });
 
       setDoctors(prev => prev.map(d => d.id === id ? { ...d, ...editDoctorForm, caseLimit: Number(caseLimit) || 3 } : d));

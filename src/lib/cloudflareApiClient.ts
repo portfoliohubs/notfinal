@@ -64,6 +64,19 @@ export const cloudflareApi = {
   getAdminDoctors() {
     return request<Array<PortfolioData & { id: string; uid?: string; caseCount?: number }>>('/api/admin/doctors', {}, true);
   },
+  updateAdminDoctor(uid: string, data: Record<string, unknown>) {
+    return request<{ ok: true; uid: string; data: Record<string, unknown> }>(`/api/admin/doctors/${encodeURIComponent(uid)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }, true);
+  },
+  approveAdminDoctor(uid: string, slug: string) {
+    return request<{ ok: true; uid: string; slug: string; publishedAt: string; doctor: PublishedWebsite }>(
+      `/api/admin/doctors/${encodeURIComponent(uid)}/approve`,
+      { method: 'POST', body: JSON.stringify({ slug }) },
+      true,
+    );
+  },
   getCases(uid?: string) {
     return request<Array<CloudflareEnvelope<DentalCase> | DentalCase>>(`/api/cases${uid ? `?uid=${encodeURIComponent(uid)}` : ''}`, {}, true);
   },
@@ -113,7 +126,7 @@ export const cloudflareApi = {
     return request<{ ok: true }>(`/api/promo/${encodeURIComponent(code)}`, { method: 'DELETE' }, true);
   },
   redeemPromo(code: string) {
-    return request<{ ok: true; code: string }>('/api/promo/redeem', {
+    return request<{ ok: true; code: string; caseLimit: number }>('/api/promo/redeem', {
       method: 'POST',
       body: JSON.stringify({ code }),
     }, true);

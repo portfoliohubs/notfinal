@@ -13,7 +13,13 @@
     "cloudflare:deploy": "wrangler deploy",
     "cloudflare:d1:migrate": "wrangler d1 migrations apply portfoliohubs-db --remote",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:api": "tsx --test tests/server-api.test.ts",
+    "test:rules": "node --test tests/security-rules.test.mjs",
+    "test:promo": "node --test tests/promo-redemption.test.mjs",
+    "test:worker": "tsx --test tests/worker-api.test.ts",
+    "test:rules:emulated": "npx --yes firebase-tools@15.31.0 emulators:exec --only firestore,storage --project demo-portfoliohubs \"npm run test:rules\"",
+    "test:security": "npx --yes firebase-tools@15.31.0 emulators:exec --only firestore,storage --project demo-portfoliohubs \"npm run test:rules && npm run test:api && npm run test:worker && npm run test:promo\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -35,6 +41,7 @@
     "wouter": "^3.11.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
@@ -45,5 +52,10 @@
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "wrangler": "^4.137.0"
+  },
+  "overrides": {
+    "pptxgenjs": {
+      "image-size": "^2.0.4"
+    }
   }
 }

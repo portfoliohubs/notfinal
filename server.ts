@@ -1,7 +1,8 @@
-import express, { Request, Response } from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { buildDoctorStaticHtml } from './scripts/doctor-template.mjs';
 import { buildArticleStaticHtml } from './scripts/generate-static-pages.mjs';
 import { submitIndexNowUrls } from './scripts/notify-indexnow.mjs';
@@ -9,14 +10,73 @@ import { submitIndexNowUrls } from './scripts/notify-indexnow.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
+export const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 const BASE_URL = process.env.BASE_URL || 'https://portfoliohubs.github.io';
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'portfoliohubs-update';
+const firebaseKeys = createRemoteJWKSet(new URL(
+  process.env.FIREBASE_JWKS_URL || 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com',
+));
+const STATIC_ADMINS = new Set([
+  'cources01@gmail.com',
+  'admin@portfoliohubs.com',
+  'portfoliohubs.contact@gmail.com',
+]);
+const ADMIN_RATE_LIMIT = 20;
+const ADMIN_RATE_WINDOW_MS = 60_000;
+const adminRateLimits = new Map<string, { count: number; resetAt: number }>();
 
-// Increase payload limit for base64 clinical photos
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const authorization = req.headers.authorization || '';
+  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+  if (!token) return res.status(401).json({ ok: false, error: 'Authentication required.' });
+
+  try {
+    const { payload } = await jwtVerify(token, firebaseKeys, {
+      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+      audience: FIREBASE_PROJECT_ID,
+    });
+    const email = typeof payload.email === 'string' ? payload.email.toLowerCase() : '';
+    if (payload.email_verified !== true || !STATIC_ADMINS.has(email)) {
+      return res.status(403).json({ ok: false, error: 'Admin access required.' });
+    }
+    res.locals.adminUid = payload.sub;
+    return next();
+  } catch {
+    return res.status(401).json({ ok: false, error: 'Invalid authentication token.' });
+  }
+}
+
+function limitAdminRequests(req: Request, res: Response, next: NextFunction) {
+  const now = Date.now();
+  const key = `${String(res.locals.adminUid || 'unknown')}:${req.path}`;
+  let entry = adminRateLimits.get(key);
+  if (!entry || entry.resetAt <= now) {
+    entry = { count: 0, resetAt: now + ADMIN_RATE_WINDOW_MS };
+    adminRateLimits.set(key, entry);
+  }
+  if (adminRateLimits.size > 1000) {
+    for (const [entryKey, value] of adminRateLimits) {
+      if (value.resetAt <= now) adminRateLimits.delete(entryKey);
+    }
+  }
+  if (entry.count >= ADMIN_RATE_LIMIT) {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000))));
+    return res.status(429).json({ ok: false, error: 'Too many admin requests. Try again later.' });
+  }
+  entry.count += 1;
+  return next();
+}
+
+app.disable('x-powered-by');
+app.use((_, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb', parameterLimit: 100 }));
 
 // Helper: ensure directory
 function ensureDir(dirPath: string) {
@@ -38,11 +98,19 @@ function normalizeDoctorSlug(raw: string) {
 // -------------------------------------------------------------
 // 1. API: Instant Static Generation for Approved Doctor
 // -------------------------------------------------------------
-app.post('/api/admin/generate-doctor-html', async (req: Request, res: Response) => {
+app.post('/api/admin/generate-doctor-html', requireAdmin, limitAdminRequests, async (req: Request, res: Response) => {
   try {
-    const { doctor, cases = [] } = req.body;
-    if (!doctor || (!doctor.fullName && !doctor.fullNameAr)) {
+    const doctor = req.body?.doctor;
+    if (!doctor || typeof doctor !== 'object' || Array.isArray(doctor) ||
+      ![doctor.fullName, doctor.fullNameAr].some((name) => typeof name === 'string' && name.trim())) {
       return res.status(400).json({ ok: false, error: 'Doctor data with fullName is required.' });
+    }
+    const doctorCases = Array.isArray(req.body?.cases) && req.body.cases.length > 0
+      ? req.body.cases
+      : Array.isArray(doctor.cases) ? doctor.cases : [];
+    if (doctorCases.length > 100 || !doctorCases.every((item: unknown): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === 'object' && !Array.isArray(item))) {
+      return res.status(400).json({ ok: false, error: 'Clinical cases must be a list of at most 100 objects.' });
     }
 
     const cleanSlug = normalizeDoctorSlug(doctor.slug || doctor.username || doctor.fullName);
@@ -56,7 +124,7 @@ app.post('/api/admin/generate-doctor-html', async (req: Request, res: Response) 
     // 1. Generate full static HTML using doctor-template.mjs
     const doctorHtml = buildDoctorStaticHtml({
       doctor: doctorObj,
-      cases: Array.isArray(cases) && cases.length > 0 ? cases : (doctorObj.cases || []),
+      cases: doctorCases,
       baseUrl: BASE_URL
     });
 
@@ -150,7 +218,7 @@ app.post('/api/admin/generate-doctor-html', async (req: Request, res: Response) 
 
     const recordToSave = {
       ...doctorObj,
-      cases: Array.isArray(cases) && cases.length > 0 ? cases : (doctorObj.cases || []),
+      cases: doctorCases,
       updatedAt: new Date().toISOString()
     };
 
@@ -208,20 +276,37 @@ app.post('/api/admin/generate-doctor-html', async (req: Request, res: Response) 
     });
   } catch (err: any) {
     console.error('[API] Error in generate-doctor-html:', err);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: 'Static page generation failed.' });
   }
 });
 
 // -------------------------------------------------------------
 // 2. API: Trigger IndexNow Ping
 // -------------------------------------------------------------
-app.post('/api/notify-indexnow', async (req: Request, res: Response) => {
+app.post('/api/notify-indexnow', requireAdmin, limitAdminRequests, async (req: Request, res: Response) => {
   try {
-    const { urls = [] } = req.body;
+    const urls = req.body?.urls ?? [];
+    if (!Array.isArray(urls) || urls.length > 100) {
+      return res.status(400).json({ ok: false, error: 'Provide at most 100 site URLs.' });
+    }
+    const allowedOrigin = new URL(BASE_URL).origin;
+    const validUrls = urls.every((value) => {
+      if (typeof value !== 'string') return false;
+      try {
+        const url = new URL(value);
+        return url.origin === allowedOrigin && url.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    });
+    if (!validUrls) {
+      return res.status(400).json({ ok: false, error: 'URLs must use the configured HTTPS site origin.' });
+    }
     const result = await submitIndexNowUrls(urls);
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ ok: false, error: err.message });
+    console.error('[API] IndexNow notification failed:', err);
+    return res.status(500).json({ ok: false, error: 'IndexNow notification failed.' });
   }
 });
 
@@ -313,7 +398,9 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}

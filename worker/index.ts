@@ -15,26 +15,35 @@ interface Env {
   DB?: D1Database;
   MEDIA?: unknown;
   FIREBASE_PROJECT_ID: string;
+  FIREBASE_JWKS_URL?: string;
   IMAGEKIT_URL_ENDPOINT: string;
   IMAGEKIT_PUBLIC_KEY: string;
   IMAGEKIT_PRIVATE_KEY: string;
-  ADMIN_EMAILS?: string;
 }
-interface User { uid: string; email: string }
+interface User { uid: string; email: string; emailVerified: boolean }
 interface AuthenticatedUser extends User { admin: boolean }
 function imageKitPrivateKey(env: Env) {
   const raw = env.IMAGEKIT_PRIVATE_KEY || '';
   return raw.trim().replace(/^(['"])(.*)\1$/, '$2').trim();
 }
 
-const firebaseKeys = createRemoteJWKSet(new URL(
-  'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com',
-));
+const firebaseKeySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 const STATIC_ADMINS = new Set([
   'cources01@gmail.com',
   'admin@portfoliohubs.com',
   'portfoliohubs.contact@gmail.com',
 ]);
+
+function firebaseKeys(env: Env) {
+  const url = env.FIREBASE_JWKS_URL ||
+    'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+  let keySet = firebaseKeySets.get(url);
+  if (!keySet) {
+    keySet = createRemoteJWKSet(new URL(url));
+    firebaseKeySets.set(url, keySet);
+  }
+  return keySet;
+}
 
 function json(body: unknown, status = 200, request?: Request) {
   const origin = request?.headers.get('Origin');
@@ -71,12 +80,16 @@ async function authenticate(request: Request, env: Env): Promise<User> {
   const token = header.slice(7).trim();
   if (!token) throw new Response('authentication required', { status: 401 });
   try {
-    const { payload } = await jwtVerify(token, firebaseKeys, {
+    const { payload } = await jwtVerify(token, firebaseKeys(env), {
       issuer: `https://securetoken.google.com/${env.FIREBASE_PROJECT_ID}`,
       audience: env.FIREBASE_PROJECT_ID,
     });
     if (typeof payload.sub !== 'string' || !payload.sub) throw new Error('subject missing');
-    return { uid: payload.sub, email: typeof payload.email === 'string' ? payload.email.toLowerCase() : '' };
+    return {
+      uid: payload.sub,
+      email: typeof payload.email === 'string' ? payload.email.toLowerCase() : '',
+      emailVerified: payload.email_verified === true,
+    };
   } catch (caught) {
     const reason = caught instanceof Error && 'code' in caught
       ? String((caught as Error & { code?: unknown }).code || caught.name)
@@ -86,13 +99,7 @@ async function authenticate(request: Request, env: Env): Promise<User> {
 }
 async function getUser(request: Request, env: Env): Promise<AuthenticatedUser> {
   const user = await authenticate(request, env);
-  const configured = (env.ADMIN_EMAILS || '').split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
-  let admin = STATIC_ADMINS.has(user.email) || configured.includes(user.email) ||
-    user.email.endsWith('@portfoliohubs.com');
-  if (!admin && env.DB && user.email) {
-    const row = await env.DB.prepare('SELECT email FROM admins WHERE lower(email) = lower(?)').bind(user.email).first();
-    admin = Boolean(row);
-  }
+  const admin = user.emailVerified && STATIC_ADMINS.has(user.email);
   return { ...user, admin };
 }
 async function targetUid(request: Request, env: Env, user: AuthenticatedUser) {
@@ -119,28 +126,49 @@ async function mediaComplete(request: Request, env: Env) {
   const user = await getUser(request, env);
   const value = await body(request);
   const fileId = typeof value.fileId === 'string' ? value.fileId : '';
-  if (!fileId) return error('fileId is required', 400, request);
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(fileId)) return error('valid fileId is required', 400, request);
+  const privateKey = imageKitPrivateKey(env);
+  if (!privateKey) return error('media authorization is not configured', 503, request);
+  const assetResponse = await fetch(`https://api.imagekit.io/v1/files/${encodeURIComponent(fileId)}`, {
+    headers: { Authorization: `Basic ${btoa(`${privateKey}:`)}` },
+  });
+  if (!assetResponse.ok) return error('uploaded media could not be verified', 400, request);
+  const asset = await assetResponse.json() as { filePath?: string };
+  if (!asset.filePath?.startsWith(`/portfoliohubs/${user.uid}/`)) {
+    return error('uploaded media does not belong to this account', 403, request);
+  }
   const db = requireDb(env);
-  await db.prepare(`INSERT INTO media_assets (file_id, uid, case_id, metadata_json, created_at)
-    VALUES (?, ?, ?, ?, ?) ON CONFLICT(file_id) DO UPDATE SET metadata_json = excluded.metadata_json`)
+  const saved = await db.prepare(`INSERT INTO media_assets (file_id, uid, case_id, metadata_json, created_at)
+    VALUES (?, ?, ?, ?, ?) ON CONFLICT(file_id) DO UPDATE SET metadata_json = excluded.metadata_json
+    WHERE media_assets.uid = excluded.uid`)
     .bind(fileId, user.uid, typeof value.targetId === 'string' ? value.targetId : null, JSON.stringify(value), now()).run();
+  if (!saved.meta || (saved.meta as { changes?: number }).changes !== 1) {
+    return error('uploaded media is already linked to another account', 403, request);
+  }
   return json({ ok: true, fileId }, 200, request);
 }
 async function mediaUpload(request: Request, env: Env) {
   const user = await getUser(request, env);
   const privateKey = imageKitPrivateKey(env);
   if (!privateKey) return error('media upload is not configured', 503, request);
+  const contentLength = Number(request.headers.get('Content-Length') || 0);
+  if (contentLength > 6 * 1024 * 1024) return error('upload exceeds the 5 MB limit', 413, request);
   const incoming = await request.formData();
   const file = incoming.get('file');
   const fileName = incoming.get('fileName');
-  const folder = incoming.get('folder');
   if (!(file instanceof File) || typeof fileName !== 'string' || !fileName) {
     return error('file and fileName are required', 400, request);
   }
+  if (file.size > 5 * 1024 * 1024) return error('upload exceeds the 5 MB limit', 413, request);
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type.toLowerCase())) {
+    return error('only JPEG, PNG, and WebP images are allowed', 415, request);
+  }
+  const safeFileName = fileName.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
+  if (!safeFileName || safeFileName.startsWith('.')) return error('invalid fileName', 400, request);
   const uploadForm = new FormData();
-  uploadForm.append('file', file, file.name || fileName);
-  uploadForm.append('fileName', fileName);
-  uploadForm.append('folder', typeof folder === 'string' && folder ? folder : `/portfoliohubs/${user.uid}`);
+  uploadForm.append('file', file, safeFileName);
+  uploadForm.append('fileName', safeFileName);
+  uploadForm.append('folder', `/portfoliohubs/${user.uid}`);
   uploadForm.append('useUniqueFileName', 'true');
   const response = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
     method: 'POST',
@@ -204,6 +232,12 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/health') {
       return json({ ok: true, service: 'portfoliohubs-api', firebaseAuthProject: env.FIREBASE_PROJECT_ID,
         d1Configured: Boolean(env.DB), r2Configured: Boolean(env.MEDIA) }, 200, request);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/websites') {
+      const rows = (await requireDb(env).prepare(
+        'SELECT uid, slug, published_at, updated_at FROM published_portfolios ORDER BY updated_at DESC',
+      ).all<Record<string, unknown>>()).results || [];
+      return json(rows, 200, request);
     }
     if (url.pathname === '/api/media/diagnostics' && request.method === 'GET') {
       const authorization = request.headers.get('Authorization') || '';
@@ -273,6 +307,142 @@ export default {
         }));
         return json(doctors, 200, request);
       }
+      const adminDoctorMatch = url.pathname.match(/^\/api\/admin\/doctors\/([^/]+)$/);
+      if (adminDoctorMatch && ['PATCH', 'PUT'].includes(request.method)) {
+        if (!user.admin) return error('admin access required', 403, request);
+        let doctorUid: string;
+        try {
+          doctorUid = decodeURIComponent(adminDoctorMatch[1]);
+        } catch {
+          return error('invalid doctor id', 400, request);
+        }
+        const existing = await db.prepare('SELECT data_json FROM users WHERE uid = ?').bind(doctorUid).first<{ data_json: string }>();
+        if (!existing) return error('doctor not found', 404, request);
+
+        const input = await body(request);
+        const allowedFields = new Set([
+          'active', 'status', 'caseLimit', 'title', 'titleAr', 'fullName', 'fullNameAr',
+          'university', 'universityAr', 'graduationYear', 'clinicName', 'clinicNameAr',
+          'locationAddress', 'locationAddressAr', 'phone', 'whatsapp', 'adminNotes',
+          'rejectionReason', 'hasUnreviewedChanges', 'paymentConfirmed', 'approved',
+          'isApproved', 'approvedAt', 'approvedBy', 'publishedAt', 'slug', 'username',
+        ]);
+        const nextFields: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(input)) {
+          if (!allowedFields.has(key)) return error(`field '${key}' cannot be edited here`, 400, request);
+          if (key === 'caseLimit') {
+            if (typeof value !== 'number' || !Number.isInteger(value) || value < 3 || value > 500) {
+              return error('caseLimit must be an integer between 3 and 500', 400, request);
+            }
+          } else if (['active', 'hasUnreviewedChanges', 'paymentConfirmed', 'approved', 'isApproved'].includes(key)) {
+            if (typeof value !== 'boolean') return error(`${key} must be a boolean`, 400, request);
+          } else if (key === 'status') {
+            if (typeof value !== 'string' || !['draft', 'pending_review', 'published', 'approved', 'rejected', 'suspended'].includes(value)) {
+              return error('invalid doctor status', 400, request);
+            }
+          } else if (typeof value !== 'string' || value.length > (key === 'adminNotes' || key === 'rejectionReason' ? 2000 : 500)) {
+            return error(`invalid ${key}`, 400, request);
+          }
+          if (key === 'slug' || key === 'username') {
+            if (!slug(value)) return error(`${key} must be a lowercase slug`, 400, request);
+          }
+          nextFields[key] = value;
+        }
+        if (Object.keys(nextFields).length === 0) return error('at least one editable field is required', 400, request);
+
+        const nextData = { ...parseJson(existing.data_json), ...nextFields, updatedAt: now() };
+        const saved = await db.prepare('UPDATE users SET data_json = ?, updated_at = ? WHERE uid = ?')
+          .bind(JSON.stringify(nextData), nextData.updatedAt, doctorUid).run();
+        if ((saved.meta as { changes?: number } | undefined)?.changes !== 1) {
+          return error('doctor update failed', 500, request);
+        }
+        return json({ ok: true, uid: doctorUid, data: nextData }, 200, request);
+      }
+      const approveDoctorMatch = url.pathname.match(/^\/api\/admin\/doctors\/([^/]+)\/approve$/);
+      if (approveDoctorMatch && request.method === 'POST') {
+        if (!user.admin) return error('admin access required', 403, request);
+        let doctorUid: string;
+        try {
+          doctorUid = decodeURIComponent(approveDoctorMatch[1]);
+        } catch {
+          return error('invalid doctor id', 400, request);
+        }
+        const value = await body(request);
+        const chosenSlug = slug(value.slug);
+        if (!chosenSlug) return error('valid lowercase doctor slug is required', 400, request);
+
+        const profileRow = await db.prepare('SELECT data_json, created_at FROM users WHERE uid = ?')
+          .bind(doctorUid).first<{ data_json: string; created_at: string }>();
+        if (!profileRow) return error('doctor not found', 404, request);
+        const oldSlug = await db.prepare('SELECT slug FROM published_portfolios WHERE uid = ?')
+          .bind(doctorUid).first<{ slug: string }>();
+        const portfolioRow = await db.prepare('SELECT data_json, created_at FROM portfolios WHERE uid = ?')
+          .bind(doctorUid).first<{ data_json: string; created_at: string }>();
+        const caseRows = (await db.prepare(
+          'SELECT id, data_json, sort_order, created_at, updated_at FROM cases WHERE uid = ? ORDER BY sort_order, created_at',
+        ).bind(doctorUid).all<Record<string, unknown>>()).results || [];
+        const stamp = now();
+        const profile = {
+          ...parseJson(profileRow.data_json),
+          ...(portfolioRow ? parseJson(portfolioRow.data_json) : {}),
+          uid: doctorUid,
+          slug: chosenSlug,
+          username: chosenSlug,
+          status: 'published',
+          active: true,
+          approved: true,
+          isApproved: true,
+          approvedAt: stamp,
+          approvedBy: user.email,
+          publishedAt: stamp,
+          hasUnreviewedChanges: false,
+          adminNotes: '',
+          rejectionReason: null,
+          updatedAt: stamp,
+        };
+        const published = {
+          ...profile,
+          cases: caseRows.map((row) => ({
+            ...parseJson(row.data_json),
+            id: row.id,
+            uid: doctorUid,
+            sortOrder: row.sort_order,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          })),
+        };
+
+        const slugStatement = oldSlug
+          ? db.prepare(`UPDATE slugs SET slug = ?, created_at = ?
+              WHERE uid = ? AND slug = ?
+                AND NOT EXISTS (SELECT 1 FROM slugs WHERE slug = ? AND uid <> ?)`)
+              .bind(chosenSlug, stamp, doctorUid, oldSlug.slug, chosenSlug, doctorUid)
+          : db.prepare(`INSERT INTO slugs (slug, uid, created_at)
+              SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM slugs WHERE slug = ? AND uid <> ?)
+              ON CONFLICT(slug) DO UPDATE SET uid = excluded.uid`)
+              .bind(chosenSlug, doctorUid, stamp, chosenSlug, doctorUid);
+        const results = await db.batch([
+          slugStatement,
+          db.prepare(`UPDATE users SET data_json = ?, updated_at = ? WHERE uid = ? AND changes() = 1`)
+            .bind(JSON.stringify(profile), stamp, doctorUid),
+          db.prepare(`INSERT INTO published_portfolios (uid, slug, data_json, published_at, updated_at)
+            SELECT ?, ?, ?, ?, ? WHERE changes() = 1
+            ON CONFLICT(uid) DO UPDATE SET slug = excluded.slug, data_json = excluded.data_json,
+              published_at = excluded.published_at, updated_at = excluded.updated_at`)
+            .bind(doctorUid, chosenSlug, JSON.stringify(published), stamp, stamp),
+          db.prepare(`INSERT INTO portfolios (uid, data_json, created_at, updated_at)
+            SELECT ?, ?, ?, ? WHERE changes() = 1
+            ON CONFLICT(uid) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at`)
+            .bind(doctorUid, JSON.stringify(profile), portfolioRow?.created_at || profileRow.created_at || stamp, stamp),
+        ]);
+        if ((results[0].meta as { changes?: number } | undefined)?.changes !== 1) {
+          return error('doctor slug is unavailable or slug registry needs repair', 409, request);
+        }
+        if (results.slice(1).some((result) => (result.meta as { changes?: number } | undefined)?.changes !== 1)) {
+          return error('doctor publication failed', 500, request);
+        }
+        return json({ ok: true, uid: doctorUid, slug: chosenSlug, publishedAt: stamp, doctor: published }, 200, request);
+      }
 
       if (url.pathname === '/api/profile') {
         if (request.method === 'GET') {
@@ -281,6 +451,24 @@ export default {
         }
         if (['PUT', 'PATCH'].includes(request.method)) {
           const value = await body(request); const stamp = now();
+          const existing = await db.prepare('SELECT data_json FROM users WHERE uid = ?').bind(uid).first<{ data_json: string }>();
+          const previous = parseJson(existing?.data_json);
+          const protectedFields: Record<string, unknown> = {
+            caseLimit: 3,
+            status: 'pending_review',
+            isApproved: false,
+            approved: false,
+            active: true,
+            paymentConfirmed: false,
+            caseCount: 0,
+            promoCode: '',
+          };
+          if (!user.admin) {
+            for (const [key, fallback] of Object.entries(protectedFields)) {
+              value[key] = Object.prototype.hasOwnProperty.call(previous, key) ? previous[key] : (existing ? undefined : fallback);
+              if (value[key] === undefined) delete value[key];
+            }
+          }
           await db.prepare(`INSERT INTO users (uid, email, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(uid) DO UPDATE SET email = excluded.email, data_json = excluded.data_json, updated_at = excluded.updated_at`)
             .bind(uid, user.email, JSON.stringify(value), stamp, stamp).run();
@@ -329,9 +517,15 @@ export default {
           const owner = await db.prepare('SELECT uid FROM cases WHERE id = ?').bind(id).first<{ uid: string }>();
           if (owner && owner.uid !== uid) return error('forbidden', 403, request);
           const stamp = now(); const order = typeof value.sortOrder === 'number' ? value.sortOrder : 0;
-          await db.prepare(`INSERT INTO cases (id, uid, data_json, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+          const saved = await db.prepare(`INSERT INTO cases (id, uid, data_json, sort_order, created_at, updated_at)
+            SELECT ?, ?, ?, ?, ?, ?
+            WHERE ? = 1 OR (SELECT COUNT(*) FROM cases WHERE uid = ?) <
+              COALESCE(CAST(json_extract((SELECT data_json FROM users WHERE uid = ?), '$.caseLimit') AS INTEGER), 3)
             ON CONFLICT(id) DO UPDATE SET data_json = excluded.data_json, sort_order = excluded.sort_order, updated_at = excluded.updated_at`)
-            .bind(id, uid, JSON.stringify(value), order, stamp, stamp).run();
+            .bind(id, uid, JSON.stringify(value), order, stamp, stamp, user.admin || owner ? 1 : 0, uid, uid).run();
+          if (!saved.meta || (saved.meta as { changes?: number }).changes !== 1) {
+            return error('case limit reached', 403, request);
+          }
           await db.prepare(`UPDATE users SET data_json = json_set(COALESCE(data_json, '{}'), '$.caseCount',
             (SELECT COUNT(*) FROM cases WHERE uid = ?)), updated_at = ? WHERE uid = ?`)
             .bind(uid, stamp, uid).run();
@@ -347,6 +541,7 @@ export default {
         }
       }
       if (url.pathname === '/api/publish' && (request.method === 'POST' || request.method === 'PUT')) {
+        if (!user.admin) return error('admin access required', 403, request);
         const value = await body(request); const chosen = slug(value.slug);
         if (!chosen) return error('slug must contain lowercase letters, numbers, and hyphens', 400, request);
         const existing = await db.prepare('SELECT uid FROM slugs WHERE slug = ?').bind(chosen).first<{ uid: string }>();
@@ -423,13 +618,50 @@ export default {
           const row = await db.prepare('SELECT code, data_json, redeemed_count, updated_at FROM promo_codes WHERE code = ?').bind(code).first<Record<string, unknown>>();
           return row ? json({ ...row, data: parseJson(row.data_json) }, 200, request) : error('promo code not found', 404, request);
         }
-        if (request.method === 'POST' && code && (url.pathname === '/api/promo/redeem' || url.pathname.startsWith('/api/promo/'))) {
-          const result = await db.prepare('UPDATE promo_codes SET redeemed_count = redeemed_count + 1, updated_at = ? WHERE code = ? AND (json_extract(data_json, "$.maxRedemptions") IS NULL OR redeemed_count < json_extract(data_json, "$.maxRedemptions"))').bind(now(), code).run();
-          if (!result.meta || (result.meta as any).changes !== 1) return error('promo code is invalid or exhausted', 400, request);
-          return json({ ok: true, code }, 200, request);
+        if (request.method === 'POST' && url.pathname === '/api/promo/redeem' && code) {
+          if (!/^[A-Z0-9_-]{2,64}$/.test(code)) return error('valid promo code is required', 400, request);
+          const profile = await db.prepare('SELECT uid FROM users WHERE uid = ?').bind(user.uid).first();
+          const promo = await db.prepare('SELECT data_json, redeemed_count FROM promo_codes WHERE code = ?').bind(code)
+            .first<{ data_json: string; redeemed_count: number }>();
+          const promoData = parseJson(promo?.data_json);
+          if (!profile || !promo || promoData.active !== true) return error('promo code is invalid or inactive', 400, request);
+          const caseLimit = Math.min(500, Math.max(3, Number(promoData.caseLimit) || 5));
+          const previousCount = Number(promo.redeemed_count) || 0;
+          const stamp = now();
+          const results = await db.batch([
+            db.prepare(`INSERT OR IGNORE INTO promo_redemptions (code, uid, redeemed_at)
+              SELECT ?, ?, ? WHERE EXISTS (
+                SELECT 1 FROM promo_codes WHERE code = ? AND redeemed_count = ?
+                  AND json_extract(data_json, '$.active') = 1
+                  AND (json_extract(data_json, '$.maxRedemptions') IS NULL
+                    OR redeemed_count < json_extract(data_json, '$.maxRedemptions'))
+              )`).bind(code, user.uid, stamp, code, previousCount),
+            db.prepare(`UPDATE promo_codes SET redeemed_count = redeemed_count + 1, updated_at = ?
+              WHERE code = ? AND redeemed_count = ? AND changes() = 1
+                AND json_extract(data_json, '$.active') = 1
+                AND (json_extract(data_json, '$.maxRedemptions') IS NULL
+                  OR redeemed_count < json_extract(data_json, '$.maxRedemptions'))`)
+              .bind(stamp, code, previousCount),
+            db.prepare(`UPDATE users SET data_json = json_set(COALESCE(data_json, '{}'), '$.caseLimit',
+              MAX(COALESCE(CAST(json_extract(data_json, '$.caseLimit') AS INTEGER), 3), ?),
+              '$.promoCode', ?, '$.updatedAt', ?), updated_at = ?
+              WHERE uid = ? AND changes() = 1
+              AND EXISTS (SELECT 1 FROM promo_codes WHERE code = ? AND redeemed_count = ? AND updated_at = ?)`)
+              .bind(caseLimit, code, stamp, stamp, user.uid, code, previousCount + 1, stamp),
+          ]);
+          if (results.some((result) => (result.meta as { changes?: number } | undefined)?.changes !== 1)) {
+            return error('promo code is invalid, exhausted, or already being redeemed', 400, request);
+          }
+          return json({ ok: true, code, caseLimit }, 200, request);
         }
         if (!user.admin) return error('admin access required', 403, request);
-        if (request.method === 'DELETE' && code) { await db.prepare('DELETE FROM promo_codes WHERE code = ?').bind(code).run(); return json({ ok: true }, 200, request); }
+        if (request.method === 'DELETE' && code) {
+          await db.batch([
+            db.prepare('DELETE FROM promo_redemptions WHERE code = ?').bind(code),
+            db.prepare('DELETE FROM promo_codes WHERE code = ?').bind(code),
+          ]);
+          return json({ ok: true }, 200, request);
+        }
         if (['POST', 'PUT', 'PATCH'].includes(request.method)) {
           const value = await body(request); const key = code || (typeof value.code === 'string' ? value.code.toUpperCase() : '');
           if (!/^[A-Z0-9_-]{2,64}$/.test(key)) return error('valid promo code is required', 400, request);
